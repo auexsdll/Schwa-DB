@@ -181,4 +181,57 @@ router.get('/scans', (req, res) => {
   }
 });
 
+// GET /api/admin/applications
+router.get('/applications', (req, res) => {
+  try {
+    const applications = db.prepare('SELECT * FROM applications ORDER BY created_at DESC').all();
+    res.json(applications);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// POST /api/admin/applications/:id/respond
+router.post('/applications/:id/respond', async (req, res) => {
+  const { id } = req.params;
+  const { action } = req.body;
+  try {
+    const application = db.prepare('SELECT * FROM applications WHERE id = ?').get(id);
+    if (!application) return res.status(404).json({ error: 'Not found' });
+    if (application.status !== 'pending') return res.status(400).json({ error: 'Already processed' });
+
+    const isApprove = action === 'approve';
+    const newStatus = isApprove ? 'approved' : 'rejected';
+    
+    db.prepare('UPDATE applications SET status = ? WHERE id = ?').run(newStatus, id);
+
+    const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
+    if (webhookUrl) {
+      await fetch(webhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          content: isApprove 
+            ? `✅ **Application Approved:** <@${application.discord}> (Username: **${application.username}**) has been granted access!` 
+            : `❌ **Application Rejected:** **${application.username}**'s access request was denied.`,
+          embeds: [{
+            title: isApprove ? "Access Granted" : "Access Denied",
+            color: isApprove ? 3066993 : 15158332,
+            description: isApprove 
+              ? `The application for **${application.username}** has been reviewed and approved.` 
+              : `The application for **${application.username}** has been reviewed and rejected.`,
+            timestamp: new Date().toISOString()
+          }]
+        })
+      });
+    }
+
+    res.json({ success: true, newStatus });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
 module.exports = router;

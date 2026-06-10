@@ -73,10 +73,6 @@ app.post('/api/register', async (req, res) => {
       })
     });
 
-    if (!response.ok) {
-      throw new Error(`Discord API responded with ${response.status}`);
-    }
-
     const messageData = await response.json();
     if (messageData && messageData.id) {
       db.prepare(`UPDATE applications SET message_id = ? WHERE id = ?`).run(messageData.id, appId);
@@ -146,8 +142,8 @@ app.get('/api/respond', async (req, res) => {
     if (webhookUrl) {
       const payload = {
         content: isApprove 
-          ? `✅ **Approved by Administrator.**\n🔑 A unique license key (\`${generatedKey}\`) was automatically generated and emailed to **${application.email}**.` 
-          : `❌ **Rejected by Administrator.**\nAn email notification has been sent to **${application.email}**.`
+          ? `✅ **Approved by Schwa.**\n🔑 A unique license key (\`${generatedKey}\`) was automatically generated and emailed to **${application.email}**.` 
+          : `❌ **Rejected by Schwa.**\nAn email notification has been sent to **${application.email}**.`
       };
 
       if (application.message_id) {
@@ -187,7 +183,7 @@ app.get('/api/respond', async (req, res) => {
     `);
   } catch (error) {
     console.error("Respond error:", error);
-    res.status(500).send("An error occurred: " + error.message);
+    res.status(500).send("An error occurred");
   }
 });
 
