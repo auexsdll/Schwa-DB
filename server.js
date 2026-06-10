@@ -23,6 +23,46 @@ app.use('/api/key', keysRouter);
 app.use('/api/scan', scansRouter);
 app.use('/api/admin', adminRouter);
 
+// Public Registration Webhook Endpoint
+app.post('/api/register', async (req, res) => {
+  try {
+    const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
+    if (!webhookUrl) return res.status(500).json({ error: "Webhook is not configured on backend." });
+
+    const { username, email, discord, reason } = req.body;
+
+    const response = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        content: `🟢 **New Application Received from ${username}!**`,
+        embeds: [{
+          title: "Access Request Application",
+          color: 9384170,
+          fields: [
+            { name: "👤 Username", value: username, inline: true },
+            { name: "📧 Email", value: email, inline: true },
+            { name: "💬 Discord ID", value: discord || "N/A", inline: true },
+            { name: "📝 Reason for Access", value: reason },
+            { name: "⚡ Actions", value: `[✅ Click to Approve](https://schwaadevelopment.com.tr/dashboard?approve=${encodeURIComponent(username)}) • [❌ Reject](https://schwaadevelopment.com.tr/dashboard?reject=${encodeURIComponent(username)})`, inline: false }
+          ],
+          footer: { text: "Schwa Scanner Web" },
+          timestamp: new Date().toISOString()
+        }]
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`Discord API responded with ${response.status}`);
+    }
+
+    res.json({ success: true, message: "Application sent successfully" });
+  } catch (error) {
+    console.error("Register webhook error:", error);
+    res.status(500).json({ error: "Failed to send application", details: error.message });
+  }
+});
+
 // Download route (Backend to GitHub API)
 app.get('/api/download', async (req, res) => {
   try {
