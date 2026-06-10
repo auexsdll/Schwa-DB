@@ -10,11 +10,11 @@ const port = process.env.PORT || 3000;
 
 // Mail Transporter
 const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST || 'smtp.ethereal.email',
-  port: process.env.SMTP_PORT || 587,
+  host: (process.env.SMTP_HOST || 'smtp.ethereal.email').trim(),
+  port: parseInt(process.env.SMTP_PORT || 587),
   auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS
+    user: (process.env.SMTP_USER || '').trim(),
+    pass: (process.env.SMTP_PASS || '').trim()
   }
 });
 
