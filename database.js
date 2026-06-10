@@ -26,6 +26,7 @@ db.exec(`
     discord TEXT,
     reason TEXT,
     status TEXT DEFAULT 'pending',
+    message_id TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 
@@ -38,6 +39,12 @@ db.exec(`
     ip_address TEXT,
     FOREIGN KEY (id) REFERENCES keys (id)
   );
-`);
+});
+
+try {
+  db.exec(`ALTER TABLE applications ADD COLUMN message_id TEXT;`);
+} catch (e) {
+  // Ignore if column already exists
+}
 
 module.exports = db;
