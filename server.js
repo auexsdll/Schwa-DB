@@ -3,20 +3,11 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const crypto = require('crypto');
-const nodemailer = require('nodemailer');
+// No need for nodemailer anymore, we will use direct REST API
+// to bypass all Railway port and SMTP blocking issues.
 
 const app = express();
 const port = process.env.PORT || 3000;
-
-const transporter = nodemailer.createTransport({
-  host: (process.env.SMTP_HOST || 'smtp.ethereal.email').trim(),
-  port: parseInt(process.env.SMTP_PORT || 587),
-  secure: parseInt(process.env.SMTP_PORT || 587) === 465,
-  auth: {
-    user: (process.env.SMTP_USER || '').trim(),
-    pass: (process.env.SMTP_PASS || '').trim()
-  }
-});
 
 // Middleware
 app.use(express.json());
@@ -139,25 +130,39 @@ app.get('/api/respond', async (req, res) => {
     `);
 
     // 2. MAİL VE DİSCORD İŞLEMLERİNİ ARKA PLANDA YAP
-    // Send Email
-    if (process.env.SMTP_USER) {
-      transporter.sendMail({
-        from: `"Schwa Scanner" <noreply@schwadevelopment.com.tr>`,
-        to: application.email,
-        subject: isApprove ? 'Your Schwa Scanner Application is Approved!' : 'Schwa Scanner Application Update',
-        html: isApprove 
-          ? `<div style="font-family: Arial, sans-serif; background: #0f0f13; color: white; padding: 20px;">
-              <h2 style="color: #4ade80;">Welcome to Schwa Scanner!</h2>
-              <p>Your application has been approved by our administrators.</p>
-              <p>Your automatically generated License Key is:</p>
-              <h3 style="background: #222; padding: 10px; border-radius: 5px; display: inline-block;">${generatedKey}</h3>
-              <p>You can download the software from our website.</p>
-             </div>` 
-          : `<div style="font-family: Arial, sans-serif; background: #0f0f13; color: white; padding: 20px;">
-              <h2 style="color: #f87171;">Application Update</h2>
-              <p>Unfortunately, your application for Schwa Scanner was not approved at this time.</p>
-             </div>`
-      }).catch(err => console.error("Email sending error:", err));
+    // Send Email via Resend REST API (Bypasses SMTP completely)
+    if (process.env.SMTP_PASS) {
+      const emailHtml = isApprove 
+        ? `<div style="font-family: Arial, sans-serif; background: #0f0f13; color: white; padding: 20px;">
+            <h2 style="color: #4ade80;">Welcome to Schwa Scanner!</h2>
+            <p>Your application has been approved by our administrators.</p>
+            <p>Your automatically generated License Key is:</p>
+            <h3 style="background: #222; padding: 10px; border-radius: 5px; display: inline-block;">${generatedKey}</h3>
+            <p>You can download the software from our website.</p>
+           </div>` 
+        : `<div style="font-family: Arial, sans-serif; background: #0f0f13; color: white; padding: 20px;">
+            <h2 style="color: #f87171;">Application Update</h2>
+            <p>Unfortunately, your application for Schwa Scanner was not approved at this time.</p>
+           </div>`;
+
+      fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${process.env.SMTP_PASS.trim()}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          from: 'Schwa Scanner <noreply@schwadevelopment.com.tr>',
+          to: application.email,
+          subject: isApprove ? 'Your Schwa Scanner Application is Approved!' : 'Schwa Scanner Application Update',
+          html: emailHtml
+        })
+      })
+      .then(async (res) => {
+        const data = await res.json();
+        console.log("Resend API Result:", data);
+      })
+      .catch(err => console.error("Resend API Request Error:", err));
     }
 
     // Send Webhook Reply
