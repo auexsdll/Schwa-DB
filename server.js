@@ -8,10 +8,10 @@ const nodemailer = require('nodemailer');
 const app = express();
 const port = process.env.PORT || 3000;
 
-// Mail Transporter
 const transporter = nodemailer.createTransport({
   host: (process.env.SMTP_HOST || 'smtp.ethereal.email').trim(),
   port: parseInt(process.env.SMTP_PORT || 587),
+  secure: parseInt(process.env.SMTP_PORT || 587) === 465,
   auth: {
     user: (process.env.SMTP_USER || '').trim(),
     pass: (process.env.SMTP_PASS || '').trim()
@@ -113,51 +113,7 @@ app.get('/api/respond', async (req, res) => {
       `).run(generatedKey);
     }
 
-    // Send Email
-    if (process.env.SMTP_USER) {
-      try {
-        await transporter.sendMail({
-          from: `"Schwa Scanner" <noreply@schwadevelopment.com.tr>`,
-          to: application.email,
-          subject: isApprove ? 'Your Schwa Scanner Application is Approved!' : 'Schwa Scanner Application Update',
-          html: isApprove 
-            ? `<div style="font-family: Arial, sans-serif; background: #0f0f13; color: white; padding: 20px;">
-                <h2 style="color: #4ade80;">Welcome to Schwa Scanner!</h2>
-                <p>Your application has been approved by our administrators.</p>
-                <p>Your automatically generated License Key is:</p>
-                <h3 style="background: #222; padding: 10px; border-radius: 5px; display: inline-block;">${generatedKey}</h3>
-                <p>You can download the software from our website.</p>
-               </div>` 
-            : `<div style="font-family: Arial, sans-serif; background: #0f0f13; color: white; padding: 20px;">
-                <h2 style="color: #f87171;">Application Update</h2>
-                <p>Unfortunately, your application for Schwa Scanner was not approved at this time.</p>
-               </div>`
-        });
-      } catch (err) {
-        console.error("Email sending error:", err);
-      }
-    }
-
-    // Send Webhook Reply
-    if (webhookUrl) {
-      const payload = {
-        content: isApprove 
-          ? `✅ **Approved by Schwa.**\n🔑 A unique license key (\`${generatedKey}\`) was automatically generated and emailed to **${application.email}**.` 
-          : `❌ **Rejected by Schwa.**\nAn email notification has been sent to **${application.email}**.`
-      };
-
-      if (application.message_id) {
-        payload.message_reference = { message_id: application.message_id };
-      }
-
-      await fetch(webhookUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-    }
-
-    // Return HTML that auto-closes
+    // 1. ANINDA YANIT VER (Tarayıcı Donmasın)
     res.send(`
       <!DOCTYPE html>
       <html>
@@ -181,9 +137,53 @@ app.get('/api/respond', async (req, res) => {
       </body>
       </html>
     `);
+
+    // 2. MAİL VE DİSCORD İŞLEMLERİNİ ARKA PLANDA YAP
+    // Send Email
+    if (process.env.SMTP_USER) {
+      transporter.sendMail({
+        from: `"Schwa Scanner" <noreply@schwadevelopment.com.tr>`,
+        to: application.email,
+        subject: isApprove ? 'Your Schwa Scanner Application is Approved!' : 'Schwa Scanner Application Update',
+        html: isApprove 
+          ? `<div style="font-family: Arial, sans-serif; background: #0f0f13; color: white; padding: 20px;">
+              <h2 style="color: #4ade80;">Welcome to Schwa Scanner!</h2>
+              <p>Your application has been approved by our administrators.</p>
+              <p>Your automatically generated License Key is:</p>
+              <h3 style="background: #222; padding: 10px; border-radius: 5px; display: inline-block;">${generatedKey}</h3>
+              <p>You can download the software from our website.</p>
+             </div>` 
+          : `<div style="font-family: Arial, sans-serif; background: #0f0f13; color: white; padding: 20px;">
+              <h2 style="color: #f87171;">Application Update</h2>
+              <p>Unfortunately, your application for Schwa Scanner was not approved at this time.</p>
+             </div>`
+      }).catch(err => console.error("Email sending error:", err));
+    }
+
+    // Send Webhook Reply
+    if (webhookUrl) {
+      const payload = {
+        content: isApprove 
+          ? `✅ **Approved by Schwa.**\n🔑 A unique license key (\`${generatedKey}\`) was automatically generated and emailed to **${application.email}**.` 
+          : `❌ **Rejected by Schwa.**\nAn email notification has been sent to **${application.email}**.`
+      };
+
+      if (application.message_id) {
+        payload.message_reference = { message_id: application.message_id };
+      }
+
+      fetch(webhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      }).catch(err => console.error("Webhook error:", err));
+    }
+
   } catch (error) {
     console.error("Respond error:", error);
-    res.status(500).send("An error occurred");
+    if (!res.headersSent) {
+      res.status(500).send("An error occurred");
+    }
   }
 });
 
