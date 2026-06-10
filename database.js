@@ -19,6 +19,16 @@ db.exec(`
     imageUrl TEXT
   );
 
+  CREATE TABLE IF NOT EXISTS applications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT NOT NULL,
+    email TEXT NOT NULL,
+    discord TEXT,
+    reason TEXT,
+    status TEXT DEFAULT 'pending',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
   CREATE TABLE IF NOT EXISTS scans (
     scan_id INTEGER PRIMARY KEY AUTOINCREMENT,
     id TEXT NOT NULL, -- The key id
