@@ -133,17 +133,68 @@ app.get('/api/respond', async (req, res) => {
     // Send Email via Resend REST API (Bypasses SMTP completely)
     if (process.env.SMTP_PASS) {
       const emailHtml = isApprove 
-        ? `<div style="font-family: Arial, sans-serif; background: #0f0f13; color: white; padding: 20px;">
-            <h2 style="color: #4ade80;">Welcome to Schwa Scanner!</h2>
-            <p>Your application has been approved by our administrators.</p>
-            <p>Your automatically generated License Key is:</p>
-            <h3 style="background: #222; padding: 10px; border-radius: 5px; display: inline-block;">${generatedKey}</h3>
-            <p>You can download the software from our website.</p>
-           </div>` 
-        : `<div style="font-family: Arial, sans-serif; background: #0f0f13; color: white; padding: 20px;">
-            <h2 style="color: #f87171;">Application Update</h2>
-            <p>Unfortunately, your application for Schwa Scanner was not approved at this time.</p>
-           </div>`;
+        ? `<!DOCTYPE html>
+<html>
+<head>
+<style>
+  body { margin: 0; padding: 0; background-color: #050505; color: #ffffff; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
+  .container { max-width: 600px; margin: 40px auto; background: #111111; border: 1px solid #222; border-radius: 16px; overflow: hidden; box-shadow: 0 0 40px rgba(74, 222, 128, 0.1); }
+  .header { background: linear-gradient(135deg, #052e16 0%, #111 100%); padding: 40px 20px; text-align: center; border-bottom: 1px solid #1a3a22; }
+  .header h1 { margin: 0; color: #4ade80; font-size: 28px; font-weight: 700; letter-spacing: -0.5px; }
+  .content { padding: 40px 30px; text-align: center; }
+  .content p { color: #a1a1aa; font-size: 16px; line-height: 1.6; margin-bottom: 30px; }
+  .key-box { background: #000; border: 1px solid #333; padding: 25px; border-radius: 12px; margin: 30px 0; display: inline-block; box-shadow: inset 0 0 20px rgba(0,0,0,0.5); }
+  .key-box .label { color: #71717a; font-size: 12px; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 10px; display: block; }
+  .key-box .key { color: #fff; font-size: 24px; font-weight: 800; font-family: monospace; letter-spacing: 2px; text-shadow: 0 0 10px rgba(255,255,255,0.3); }
+  .footer { padding: 20px; text-align: center; border-top: 1px solid #222; color: #52525b; font-size: 13px; background: #0a0a0a; }
+</style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>Access Granted</h1>
+    </div>
+    <div class="content">
+      <p>Hello <b>${application.username}</b>,<br>Your application for Schwa Scanner has been officially approved by our administrative team. Welcome aboard.</p>
+      <div class="key-box">
+        <span class="label">Your Unique License Key</span>
+        <span class="key">${generatedKey}</span>
+      </div>
+      <p style="font-size: 14px; color: #71717a;">Please keep this key secure. You will use it to authenticate your software.</p>
+    </div>
+    <div class="footer">
+      © 2026 Schwa Development. All rights reserved.
+    </div>
+  </div>
+</body>
+</html>` 
+        : `<!DOCTYPE html>
+<html>
+<head>
+<style>
+  body { margin: 0; padding: 0; background-color: #050505; color: #ffffff; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
+  .container { max-width: 600px; margin: 40px auto; background: #111111; border: 1px solid #222; border-radius: 16px; overflow: hidden; box-shadow: 0 0 40px rgba(248, 113, 113, 0.05); }
+  .header { background: linear-gradient(135deg, #450a0a 0%, #111 100%); padding: 40px 20px; text-align: center; border-bottom: 1px solid #2e1010; }
+  .header h1 { margin: 0; color: #f87171; font-size: 28px; font-weight: 700; letter-spacing: -0.5px; }
+  .content { padding: 40px 30px; text-align: center; }
+  .content p { color: #a1a1aa; font-size: 16px; line-height: 1.6; }
+  .footer { padding: 20px; text-align: center; border-top: 1px solid #222; color: #52525b; font-size: 13px; background: #0a0a0a; }
+</style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>Application Denied</h1>
+    </div>
+    <div class="content">
+      <p>Hello <b>${application.username}</b>,<br><br>We regret to inform you that your application for Schwa Scanner has not been approved at this time.<br><br>This decision is final and no further details can be provided by the support team.</p>
+    </div>
+    <div class="footer">
+      © 2026 Schwa Development. All rights reserved.
+    </div>
+  </div>
+</body>
+</html>`;
 
       fetch('https://api.resend.com/emails', {
         method: 'POST',
