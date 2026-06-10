@@ -121,7 +121,7 @@ app.get('/api/respond', async (req, res) => {
     if (process.env.SMTP_USER) {
       try {
         await transporter.sendMail({
-          from: `"Schwa Scanner" <${process.env.SMTP_USER}>`,
+          from: `"Schwa Scanner" <noreply@schwadevelopment.com.tr>`,
           to: application.email,
           subject: isApprove ? 'Your Schwa Scanner Application is Approved!' : 'Schwa Scanner Application Update',
           html: isApprove 

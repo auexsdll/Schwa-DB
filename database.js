@@ -39,7 +39,7 @@ db.exec(`
     ip_address TEXT,
     FOREIGN KEY (id) REFERENCES keys (id)
   );
-});
+`);
 
 try {
   db.exec(`ALTER TABLE applications ADD COLUMN message_id TEXT;`);
