@@ -115,7 +115,9 @@ router.get('/users', (req, res) => {
       };
     });
 
-    res.json(usersWithIp);
+    const applications = db.prepare('SELECT * FROM applications ORDER BY created_at DESC').all();
+
+    res.json({ users: usersWithIp, applications });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Database error' });
