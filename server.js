@@ -108,9 +108,9 @@ app.get('/api/respond', async (req, res) => {
       };
       generatedKey = generatePassword(16);
       db.prepare(`
-        INSERT INTO keys (id, game, createdBy, createdAt, active, maxUses, currentUses) 
-        VALUES (?, 'System', 'Admin', datetime('now'), 1, 1, 0)
-      `).run(generatedKey);
+        INSERT INTO keys (id, game, label, createdBy, createdAt, active, maxUses, currentUses) 
+        VALUES (?, 'System', ?, 'Admin', datetime('now'), 1, 1, 0)
+      `).run(generatedKey, application.username);
     }
 
     // 1. ANINDA YANIT VER (Tarayıcı Donmasın)
