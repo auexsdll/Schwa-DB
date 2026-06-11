@@ -97,7 +97,16 @@ app.get('/api/respond', async (req, res) => {
 
     let generatedKey = null;
     if (isApprove) {
-      generatedKey = 'SCHWA-' + crypto.randomBytes(2).toString('hex').toUpperCase() + '-' + crypto.randomBytes(2).toString('hex').toUpperCase() + '-' + crypto.randomBytes(2).toString('hex').toUpperCase();
+      const generatePassword = (length) => {
+        const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+        let result = '';
+        const randomBytes = crypto.randomBytes(length);
+        for (let i = 0; i < length; i++) {
+          result += chars[randomBytes[i] % chars.length];
+        }
+        return result;
+      };
+      generatedKey = generatePassword(16);
       db.prepare(`
         INSERT INTO keys (id, game, createdBy, createdAt, active, maxUses, currentUses) 
         VALUES (?, 'System', 'Admin', datetime('now'), 1, 1, 0)
@@ -130,40 +139,45 @@ app.get('/api/respond', async (req, res) => {
     `);
 
     // 2. MAİL VE DİSCORD İŞLEMLERİNİ ARKA PLANDA YAP
-    // Send Email via Resend REST API (Bypasses SMTP completely)
-    if (process.env.SMTP_PASS) {
       const emailHtml = isApprove 
         ? `<!DOCTYPE html>
 <html>
 <head>
 <style>
-  body { margin: 0; padding: 0; background-color: #050505; color: #ffffff; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
-  .container { max-width: 600px; margin: 40px auto; background: #111111; border: 1px solid #222; border-radius: 16px; overflow: hidden; box-shadow: 0 0 40px rgba(74, 222, 128, 0.1); }
-  .header { background: linear-gradient(135deg, #052e16 0%, #111 100%); padding: 40px 20px; text-align: center; border-bottom: 1px solid #1a3a22; }
-  .header h1 { margin: 0; color: #4ade80; font-size: 28px; font-weight: 700; letter-spacing: -0.5px; }
-  .content { padding: 40px 30px; text-align: center; }
+  body { margin: 0; padding: 0; background-color: #000000; color: #ffffff; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
+  .wrapper { width: 100%; table-layout: fixed; background-color: #000000; padding: 40px 0; }
+  .container { max-width: 600px; margin: 0 auto; background: #09090b; border: 1px solid #27272a; border-radius: 16px; overflow: hidden; box-shadow: 0 0 60px rgba(74, 222, 128, 0.05); }
+  .header { padding: 40px 20px; text-align: center; border-bottom: 1px solid #18181b; background: radial-gradient(circle at top, #052e16 0%, #09090b 100%); }
+  .logo { max-width: 140px; margin-bottom: 20px; }
+  .header h1 { margin: 0; color: #4ade80; font-size: 26px; font-weight: 700; letter-spacing: -0.5px; }
+  .content { padding: 40px 40px; text-align: center; }
   .content p { color: #a1a1aa; font-size: 16px; line-height: 1.6; margin-bottom: 30px; }
-  .key-box { background: #000; border: 1px solid #333; padding: 25px; border-radius: 12px; margin: 30px 0; display: inline-block; box-shadow: inset 0 0 20px rgba(0,0,0,0.5); }
-  .key-box .label { color: #71717a; font-size: 12px; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 10px; display: block; }
-  .key-box .key { color: #fff; font-size: 24px; font-weight: 800; font-family: monospace; letter-spacing: 2px; text-shadow: 0 0 10px rgba(255,255,255,0.3); }
-  .footer { padding: 20px; text-align: center; border-top: 1px solid #222; color: #52525b; font-size: 13px; background: #0a0a0a; }
+  .key-container { background: #000000; border: 1px solid #27272a; padding: 30px; border-radius: 12px; margin: 30px 0; display: inline-block; position: relative; }
+  .label { color: #71717a; font-size: 11px; text-transform: uppercase; letter-spacing: 3px; margin-bottom: 15px; display: block; font-weight: 600; }
+  .key { color: #ffffff; font-size: 24px; font-weight: 800; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; letter-spacing: 2px; }
+  .footer { padding: 30px 20px; text-align: center; border-top: 1px solid #18181b; color: #52525b; font-size: 12px; background: #000000; }
+  .highlight { color: #ffffff; font-weight: 600; }
 </style>
 </head>
 <body>
-  <div class="container">
-    <div class="header">
-      <h1>Access Granted</h1>
-    </div>
-    <div class="content">
-      <p>Hello <b>${application.username}</b>,<br>Your application for Schwa Scanner has been officially approved by our administrative team. Welcome aboard.</p>
-      <div class="key-box">
-        <span class="label">Your Unique License Key</span>
-        <span class="key">${generatedKey}</span>
+  <div class="wrapper">
+    <div class="container">
+      <div class="header">
+        <img src="https://schwadevelopment.com.tr/logo.png" alt="Schwa" class="logo">
+        <h1>Access Granted</h1>
       </div>
-      <p style="font-size: 14px; color: #71717a;">Please keep this key secure. You will use it to authenticate your software.</p>
-    </div>
-    <div class="footer">
-      © 2026 Schwa Development. All rights reserved.
+      <div class="content">
+        <p>Hello <span class="highlight">${application.username}</span>,<br><br>Your application for <strong>Schwa Scanner</strong> has been officially approved by our administrative team. We are thrilled to welcome you aboard.</p>
+        <div class="key-container">
+          <span class="label">Your Unique License Key</span>
+          <span class="key">${generatedKey}</span>
+        </div>
+        <p style="font-size: 14px; color: #71717a; margin-bottom: 0;">Please keep this key secure. You will use it to authenticate your software.</p>
+      </div>
+      <div class="footer">
+        © 2026 Schwa Development. All rights reserved.<br>
+        If you have any questions, please contact our support team.
+      </div>
     </div>
   </div>
 </body>
@@ -172,25 +186,31 @@ app.get('/api/respond', async (req, res) => {
 <html>
 <head>
 <style>
-  body { margin: 0; padding: 0; background-color: #050505; color: #ffffff; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
-  .container { max-width: 600px; margin: 40px auto; background: #111111; border: 1px solid #222; border-radius: 16px; overflow: hidden; box-shadow: 0 0 40px rgba(248, 113, 113, 0.05); }
-  .header { background: linear-gradient(135deg, #450a0a 0%, #111 100%); padding: 40px 20px; text-align: center; border-bottom: 1px solid #2e1010; }
-  .header h1 { margin: 0; color: #f87171; font-size: 28px; font-weight: 700; letter-spacing: -0.5px; }
-  .content { padding: 40px 30px; text-align: center; }
+  body { margin: 0; padding: 0; background-color: #000000; color: #ffffff; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
+  .wrapper { width: 100%; table-layout: fixed; background-color: #000000; padding: 40px 0; }
+  .container { max-width: 600px; margin: 0 auto; background: #09090b; border: 1px solid #27272a; border-radius: 16px; overflow: hidden; box-shadow: 0 0 60px rgba(248, 113, 113, 0.05); }
+  .header { padding: 40px 20px; text-align: center; border-bottom: 1px solid #18181b; background: radial-gradient(circle at top, #450a0a 0%, #09090b 100%); }
+  .logo { max-width: 140px; margin-bottom: 20px; }
+  .header h1 { margin: 0; color: #f87171; font-size: 26px; font-weight: 700; letter-spacing: -0.5px; }
+  .content { padding: 40px 40px; text-align: center; }
   .content p { color: #a1a1aa; font-size: 16px; line-height: 1.6; }
-  .footer { padding: 20px; text-align: center; border-top: 1px solid #222; color: #52525b; font-size: 13px; background: #0a0a0a; }
+  .footer { padding: 30px 20px; text-align: center; border-top: 1px solid #18181b; color: #52525b; font-size: 12px; background: #000000; }
+  .highlight { color: #ffffff; font-weight: 600; }
 </style>
 </head>
 <body>
-  <div class="container">
-    <div class="header">
-      <h1>Application Denied</h1>
-    </div>
-    <div class="content">
-      <p>Hello <b>${application.username}</b>,<br><br>We regret to inform you that your application for Schwa Scanner has not been approved at this time.<br><br>This decision is final and no further details can be provided by the support team.</p>
-    </div>
-    <div class="footer">
-      © 2026 Schwa Development. All rights reserved.
+  <div class="wrapper">
+    <div class="container">
+      <div class="header">
+        <img src="https://schwadevelopment.com.tr/logo.png" alt="Schwa" class="logo">
+        <h1>Application Denied</h1>
+      </div>
+      <div class="content">
+        <p>Hello <span class="highlight">${application.username}</span>,<br><br>After careful review, we regret to inform you that your application for <strong>Schwa Scanner</strong> has not been approved at this time.<br><br>This decision is final and no further details can be provided by the administrative team.</p>
+      </div>
+      <div class="footer">
+        © 2026 Schwa Development. All rights reserved.
+      </div>
     </div>
   </div>
 </body>
