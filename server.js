@@ -139,6 +139,7 @@ app.get('/api/respond', async (req, res) => {
     `);
 
     // 2. MAİL VE DİSCORD İŞLEMLERİNİ ARKA PLANDA YAP
+    if (process.env.SMTP_PASS) {
       const emailHtml = isApprove 
         ? `<!DOCTYPE html>
 <html>
