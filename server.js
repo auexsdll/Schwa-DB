@@ -358,8 +358,8 @@ app.post('/api/customer/login', (req, res) => {
       message: 'Giriş başarılı!',
       user: {
         username: userRecord.label,
+        role: 'authorized',
         key: userRecord.id,
-        game: userRecord.game,
         createdAt: userRecord.createdAt
       }
     });

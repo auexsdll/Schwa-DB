@@ -2,6 +2,87 @@ const express = require('express');
 const router = express.Router();
 const db = require('../database');
 
+async function sendCustomerEmail(username, action) {
+  if (!process.env.SMTP_PASS) return;
+  // Sadece müşteriler için application kaydı vardır, normal admin keyleri için dönmez.
+  const application = db.prepare('SELECT * FROM applications WHERE username = ? COLLATE NOCASE').get(username);
+  if (!application || !application.email) return;
+
+  let subject = '';
+  let contentHtml = '';
+  let title = '';
+  let headerColor = '';
+  let titleColor = '';
+
+  if (action === 'frozen') {
+    subject = 'Your Schwa Scanner Account has been Frozen';
+    title = 'Account Frozen';
+    headerColor = '#450a0a';
+    titleColor = '#f87171';
+    contentHtml = `<p>Hello <span class="highlight">${application.username}</span>,<br><br>Your Schwa Scanner account has been temporarily <strong>frozen</strong> by the administrative team.<br><br>While your account is frozen, you will not be able to log in or use your license key.</p>`;
+  } else if (action === 'reactivated') {
+    subject = 'Your Schwa Scanner Account has been Reactivated';
+    title = 'Account Reactivated';
+    headerColor = '#052e16';
+    titleColor = '#4ade80';
+    contentHtml = `<p>Hello <span class="highlight">${application.username}</span>,<br><br>Your Schwa Scanner account has been <strong>reactivated</strong> by the administrative team.<br><br>You can now log in and continue using your license key.</p>`;
+  } else if (action === 'closed') {
+    subject = 'Your Schwa Scanner Account has been Closed';
+    title = 'Account Closed';
+    headerColor = '#450a0a';
+    titleColor = '#f87171';
+    contentHtml = `<p>Hello <span class="highlight">${application.username}</span>,<br><br>Your Schwa Scanner account has been permanently <strong>closed and deleted</strong> by the administrative team.<br><br>This decision is final.</p>`;
+  }
+
+  const emailHtml = `<!DOCTYPE html>
+<html>
+<head>
+<style>
+  body { margin: 0; padding: 0; background-color: #000000; color: #ffffff; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
+  .wrapper { width: 100%; table-layout: fixed; background-color: #000000; padding: 40px 0; }
+  .container { max-width: 600px; margin: 0 auto; background: #09090b; border: 1px solid #27272a; border-radius: 16px; overflow: hidden; box-shadow: 0 0 60px rgba(74, 222, 128, 0.05); }
+  .header { padding: 40px 20px; text-align: center; border-bottom: 1px solid #18181b; background: radial-gradient(circle at top, ${headerColor} 0%, #09090b 100%); }
+  .logo { max-width: 140px; margin-bottom: 20px; }
+  .header h1 { margin: 0; color: ${titleColor}; font-size: 26px; font-weight: 700; letter-spacing: -0.5px; }
+  .content { padding: 40px 40px; text-align: center; }
+  .content p { color: #a1a1aa; font-size: 16px; line-height: 1.6; margin-bottom: 30px; }
+  .footer { padding: 30px 20px; text-align: center; border-top: 1px solid #18181b; color: #52525b; font-size: 12px; background: #000000; }
+  .highlight { color: #ffffff; font-weight: 600; }
+</style>
+</head>
+<body>
+  <div class="wrapper">
+    <div class="container">
+      <div class="header">
+        <img src="https://schwadevelopment.com.tr/logo.png" alt="Schwa" class="logo">
+        <h1>${title}</h1>
+      </div>
+      <div class="content">
+        ${contentHtml}
+      </div>
+      <div class="footer">
+        © 2026 Schwa Development. All rights reserved.
+      </div>
+    </div>
+  </div>
+</body>
+</html>`;
+
+  fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${process.env.SMTP_PASS.trim()}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      from: 'Schwa Scanner <noreply@schwadevelopment.com.tr>',
+      to: application.email,
+      subject: subject,
+      html: emailHtml
+    })
+  }).catch(err => console.error("Email API Error:", err));
+}
+
 // Basit admin auth middleware
 const adminAuth = (req, res, next) => {
   const adminSecret = req.headers['x-admin-secret'];
@@ -13,10 +94,50 @@ const adminAuth = (req, res, next) => {
 
 router.use(adminAuth);
 
+// GET /api/admin/users
+router.get('/users', (req, res) => {
+  try {
+    const role = req.headers['x-role'];
+    if (role !== 'god' && role !== 'admin') {
+      return res.status(403).json({ error: 'Only admins can view users.' });
+    }
+
+    // Fetch keys with length 16 (customers)
+    const customers = db.prepare('SELECT * FROM keys WHERE LENGTH(id) = 16 ORDER BY createdAt DESC').all();
+    
+    // For each customer, find their latest scan's IP address
+    const usersWithIp = customers.map(c => {
+      const lastScan = db.prepare('SELECT ip_address FROM scans WHERE id = ? ORDER BY scanned_at DESC LIMIT 1').get(c.id);
+      return {
+        ...c,
+        lastIp: lastScan ? lastScan.ip_address : null,
+        active: c.active === 1
+      };
+    });
+
+    res.json(usersWithIp);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
 // GET /api/admin/keys
 router.get('/keys', (req, res) => {
   try {
-    const keys = db.prepare('SELECT * FROM keys ORDER BY createdAt DESC').all();
+    const role = req.headers['x-role'];
+    const username = req.headers['x-username'];
+
+    let query = 'SELECT * FROM keys WHERE LENGTH(id) != 16 ORDER BY createdAt DESC';
+    let params = [];
+
+    if (role !== 'god' && role !== 'admin') {
+      if (!username) return res.status(403).json({ error: 'Username required for authorized users.' });
+      query = 'SELECT * FROM keys WHERE createdBy = ? AND LENGTH(id) != 16 ORDER BY createdAt DESC';
+      params = [username];
+    }
+
+    const keys = db.prepare(query).all(...params);
     // Convert active (1/0) back to boolean
     const formattedKeys = keys.map(k => ({
       ...k,
@@ -51,9 +172,18 @@ router.post('/keys', (req, res) => {
 // PUT /api/admin/keys/:id
 router.put('/keys/:id', (req, res) => {
   const { id } = req.params;
-  const updates = req.body; // Örn: { active: false }
+  const updates = req.body;
+  const role = req.headers['x-role'];
+  const username = req.headers['x-username'];
   
   try {
+    if (role !== 'god' && role !== 'admin') {
+      const keyRecord = db.prepare('SELECT createdBy FROM keys WHERE id = ?').get(id);
+      if (!keyRecord || keyRecord.createdBy !== username) {
+        return res.status(403).json({ error: 'You do not have permission to modify this key.' });
+      }
+    }
+
     const setClauses = [];
     const values = [];
     
@@ -66,6 +196,15 @@ router.put('/keys/:id', (req, res) => {
     
     if (setClauses.length === 0) return res.json({ success: true });
     
+    // Send email logic for customers
+    if (id.length === 16 && updates.hasOwnProperty('active')) {
+      const currentRecord = db.prepare('SELECT active, label FROM keys WHERE id = ?').get(id);
+      if (currentRecord && currentRecord.active !== (updates.active ? 1 : 0)) {
+        const action = updates.active ? 'reactivated' : 'frozen';
+        sendCustomerEmail(currentRecord.label, action);
+      }
+    }
+
     values.push(id);
     const stmt = db.prepare(`UPDATE keys SET ${setClauses.join(', ')} WHERE id = ?`);
     stmt.run(...values);
@@ -81,6 +220,21 @@ router.put('/keys/:id', (req, res) => {
 router.delete('/keys/:id', (req, res) => {
   try {
     const { id } = req.params;
+    const role = req.headers['x-role'];
+    const username = req.headers['x-username'];
+
+    if (role !== 'god' && role !== 'admin') {
+      const keyRecord = db.prepare('SELECT createdBy FROM keys WHERE id = ?').get(id);
+      if (!keyRecord || keyRecord.createdBy !== username) {
+        return res.status(403).json({ error: 'You do not have permission to delete this key.' });
+      }
+    }
+
+    if (id.length === 16) {
+      const customer = db.prepare('SELECT label FROM keys WHERE id = ?').get(id);
+      if (customer) sendCustomerEmail(customer.label, 'closed');
+    }
+
     db.prepare('DELETE FROM scans WHERE id = ?').run(id); // Delete associated scans first
     db.prepare('DELETE FROM keys WHERE id = ?').run(id);
     res.json({ success: true });
@@ -93,7 +247,21 @@ router.delete('/keys/:id', (req, res) => {
 // GET /api/admin/scans
 router.get('/scans', (req, res) => {
   try {
-    const scans = db.prepare('SELECT * FROM scans ORDER BY scanned_at DESC').all();
+    const role = req.headers['x-role'];
+    const username = req.headers['x-username'];
+
+    let scans = [];
+    if (role !== 'god' && role !== 'admin') {
+      if (!username) return res.status(403).json({ error: 'Username required' });
+      const userKeys = db.prepare('SELECT id FROM keys WHERE createdBy = ?').all(username).map(k => k.id);
+      if (userKeys.length > 0) {
+        const placeholders = userKeys.map(() => '?').join(',');
+        scans = db.prepare(`SELECT * FROM scans WHERE id IN (${placeholders}) ORDER BY scanned_at DESC`).all(...userKeys);
+      }
+    } else {
+      scans = db.prepare('SELECT * FROM scans ORDER BY scanned_at DESC').all();
+    }
+
     const formattedScans = scans.map(s => {
       let parsedResults = [];
       try {
