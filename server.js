@@ -332,6 +332,44 @@ app.get('/api/download', async (req, res) => {
   }
 });
 
+// Müşteri Giriş API'si (Web sitesi ve Müşteri Paneli için)
+app.post('/api/customer/login', (req, res) => {
+  const { username, password } = req.body;
+
+  if (!username || !password) {
+    return res.status(400).json({ success: false, message: 'Lütfen kullanıcı adı ve şifrenizi girin.' });
+  }
+
+  try {
+    // Veritabanında Kullanıcı Adı (label) ve Şifresi (id/key) eşleşen bir kayıt var mı kontrol et
+    const userRecord = db.prepare('SELECT * FROM keys WHERE label = ? AND id = ?').get(username, password);
+
+    if (!userRecord) {
+      return res.status(401).json({ success: false, message: 'Geçersiz kullanıcı adı veya şifre.' });
+    }
+
+    if (userRecord.active !== 1) {
+      return res.status(403).json({ success: false, message: 'Hesabınız yöneticiler tarafından devre dışı bırakılmış.' });
+    }
+
+    // Başarılı giriş
+    return res.json({
+      success: true,
+      message: 'Giriş başarılı!',
+      user: {
+        username: userRecord.label,
+        key: userRecord.id,
+        game: userRecord.game,
+        createdAt: userRecord.createdAt
+      }
+    });
+
+  } catch (error) {
+    console.error("Login API Hatası:", error);
+    return res.status(500).json({ success: false, message: 'Sunucu hatası oluştu.' });
+  }
+});
+
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.json({ status: 'ok' });
