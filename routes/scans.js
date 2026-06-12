@@ -91,4 +91,60 @@ router.post('/submit', authMiddleware, (req, res) => {
   }
 });
 
+// GET /api/scan/public/:pin - Public endpoint for clients to view their results
+router.get('/public/:pin', (req, res) => {
+  const { pin } = req.params;
+  
+  if (!pin || pin.length !== 6) {
+    return res.status(400).json({ success: false, message: 'Geçersiz PIN formatı.' });
+  }
+
+  try {
+    // Check if PIN exists
+    const keyRecord = db.prepare('SELECT * FROM keys WHERE id = ?').get(pin);
+    
+    if (!keyRecord) {
+      return res.status(404).json({ success: false, message: 'Bu PIN kodu bulunamadı veya geçersiz.' });
+    }
+
+    // Check if there is a completed scan
+    const scanRecord = db.prepare('SELECT * FROM scans WHERE id = ? ORDER BY scanned_at DESC LIMIT 1').get(pin);
+
+    // Also check if there's a live scan currently running
+    const liveData = liveScans.get(pin);
+    const isLiveActive = liveData && (Date.now() - liveData.lastUpdated <= 30000);
+
+    if (scanRecord) {
+      // Completed
+      return res.json({
+        success: true,
+        status: 'completed',
+        game: scanRecord.game,
+        scanned_at: scanRecord.scanned_at,
+        results: JSON.parse(scanRecord.results_json || '[]')
+      });
+    } else if (isLiveActive) {
+      // Currently scanning
+      return res.json({
+        success: true,
+        status: 'scanning',
+        progress: liveData.progress,
+        message: liveData.message,
+        stage: liveData.stage
+      });
+    } else {
+      // Waiting for client to start
+      return res.json({
+        success: true,
+        status: 'pending',
+        message: 'Tarama henüz başlamadı veya sonuçlar sisteme ulaşmadı.'
+      });
+    }
+
+  } catch (error) {
+    console.error("Public Scan API Hatası:", error);
+    return res.status(500).json({ success: false, message: 'Sunucu hatası oluştu.' });
+  }
+});
+
 module.exports = router;
