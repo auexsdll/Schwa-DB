@@ -464,7 +464,7 @@ app.post('/api/customer/login', (req, res) => {
       message: 'Giriş başarılı!',
       user: {
         username: userRecord.label,
-        role: 'authorized',
+        role: userRecord.role || 'member',
         key: userRecord.id,
         createdAt: userRecord.createdAt
       }
@@ -485,3 +485,4 @@ app.listen(port, () => {
   console.lang = 'tr';
   console.log(`Backend server ${port} portunda çalışıyor.`);
 });
+

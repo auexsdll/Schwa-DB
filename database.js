@@ -18,7 +18,8 @@ db.exec(`
     notes TEXT,
     imageUrl TEXT,
     discord_id TEXT,
-    email TEXT
+    email TEXT,
+    role TEXT DEFAULT 'member'
   );
 
   CREATE TABLE IF NOT EXISTS applications (

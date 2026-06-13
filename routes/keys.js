@@ -96,5 +96,54 @@ router.post('/activate', authMiddleware, (req, res) => {
     return res.status(500).json({ success: false, message: 'Sunucu hatası' });
   }
 });
+// Update Profile
+router.post('/update-profile', async (req, res) => {
+  const { key, email, discord_id } = req.body;
+  if (!key) return res.status(400).json({ success: false, message: 'Key required' });
+
+  try {
+    const user = db.prepare('SELECT * FROM keys WHERE id = ?').get(key);
+    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
+    let imageUrl = user.imageUrl;
+
+    if (discord_id && discord_id !== user.discord_id) {
+      if (process.env.OSINT_TOKEN) {
+        try {
+          const axios = require('axios');
+          const apiRes = await axios.get(`https://discord.com/api/v10/users/${discord_id}`, {
+            headers: { Authorization: `Bot ${process.env.OSINT_TOKEN}` },
+            validateStatus: false
+          });
+          if (apiRes.status === 200 && apiRes.data.avatar) {
+            const ext = apiRes.data.avatar.startsWith('a_') ? 'gif' : 'png';
+            imageUrl = `https://cdn.discordapp.com/avatars/${discord_id}/${apiRes.data.avatar}.${ext}?size=1024`;
+          }
+        } catch (e) {
+          console.error("Discord avatar fetch error:", e.message);
+        }
+      }
+    }
+
+    db.prepare('UPDATE keys SET email = ?, discord_id = ?, imageUrl = ? WHERE id = ?').run(email || user.email, discord_id || user.discord_id, imageUrl, key);
+    
+    // Also update team_members table
+    db.prepare('UPDATE team_members SET email = ?, discord_id = ? WHERE username = ? COLLATE NOCASE').run(email || user.email, discord_id || user.discord_id, user.label);
+
+    res.json({ success: true, message: 'Profile updated successfully', imageUrl });
+  } catch (error) {
+    console.error('Update profile error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+// Get Profile
+router.get('/profile', async (req, res) => {
+  const key = req.headers['x-api-key'] || req.query.key;
+  if (!key) return res.status(401).json({ success: false, message: 'Unauthorized' });
+  const user = db.prepare('SELECT email, discord_id, imageUrl FROM keys WHERE id = ?').get(key);
+  res.json({ success: true, profile: user });
+});
 
 module.exports = router;
+

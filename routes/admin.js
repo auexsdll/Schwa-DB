@@ -545,5 +545,27 @@ router.get('/keys', (req, res) => {
     res.status(500).json({ error: 'Database error' });
   }
 });
+// POST /api/admin/users/:id/role
+router.post('/users/:id/role', (req, res) => {
+  try {
+    const role = req.headers['x-role'];
+    if (role !== 'god') {
+      return res.status(403).json({ error: 'Only God can change roles.' });
+    }
+
+    const { id } = req.params;
+    const { newRole } = req.body;
+
+    if (!['god', 'admin', 'member', 'viewer'].includes(newRole)) {
+      return res.status(400).json({ error: 'Invalid role.' });
+    }
+
+    db.prepare('UPDATE keys SET role = ? WHERE id = ?').run(newRole, id);
+    res.json({ success: true, message: 'Role updated successfully.' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
 
 module.exports = router;
