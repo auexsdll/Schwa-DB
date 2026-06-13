@@ -172,7 +172,7 @@ app.post('/api/customer/register-referral', async (req, res) => {
       message: 'Registration successful via Referral!',
       user: {
         username: desiredUsername,
-        role: 'admin', // Give them admin so they can generate keys for their team
+        role: 'member',
         key: newKeyId,
         createdAt: new Date().toISOString()
       }

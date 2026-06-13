@@ -23,10 +23,10 @@ router.get('/my-team', (req, res) => {
     if (!username) return res.status(400).json({ error: 'Username required' });
 
     // First check if user is a member of any team
-    const membership = db.prepare('SELECT * FROM team_members WHERE username = ?').get(username);
+    const membership = db.prepare('SELECT * FROM team_members WHERE username = ? COLLATE NOCASE').get(username);
     
     // Check if user is a leader
-    let team = db.prepare('SELECT * FROM teams WHERE leader_username = ?').get(username);
+    let team = db.prepare('SELECT * FROM teams WHERE leader_username = ? COLLATE NOCASE').get(username);
 
     if (!team && membership) {
       team = db.prepare('SELECT * FROM teams WHERE id = ?').get(membership.team_id);
@@ -37,7 +37,13 @@ router.get('/my-team', (req, res) => {
     }
 
     // Get members
-    const members = db.prepare('SELECT username, role, joined_at FROM team_members WHERE team_id = ? ORDER BY joined_at ASC').all(team.id);
+    const members = db.prepare(`
+      SELECT tm.username, tm.role, tm.joined_at, k.discord_id, k.imageUrl 
+      FROM team_members tm 
+      LEFT JOIN keys k ON tm.username = k.label COLLATE NOCASE 
+      WHERE tm.team_id = ? 
+      ORDER BY tm.joined_at ASC
+    `).all(team.id);
 
     // Get stats (Keys created by members, Scans by those keys, etc.)
     const memberUsernames = members.map(m => m.username);
@@ -106,7 +112,7 @@ router.post('/create', (req, res) => {
     if (!name) return res.status(400).json({ error: 'Team name required' });
 
     // Check if user already has a team
-    const existing = db.prepare('SELECT id FROM teams WHERE leader_username = ?').get(username);
+    const existing = db.prepare('SELECT id FROM teams WHERE leader_username = ? COLLATE NOCASE').get(username);
     if (existing) return res.status(400).json({ error: 'You are already a team leader' });
 
     const info = db.prepare('INSERT INTO teams (name, leader_username) VALUES (?, ?)').run(name, username);
@@ -167,7 +173,7 @@ router.delete('/member', (req, res) => {
     }
 
     // Delete from team_members
-    db.prepare('DELETE FROM team_members WHERE team_id = ? AND username = ?').run(teamId, targetUsername);
+    db.prepare('DELETE FROM team_members WHERE team_id = ? AND username = ? COLLATE NOCASE').run(teamId, targetUsername);
     
     // Ban account if requested
     if (banAccount) {
