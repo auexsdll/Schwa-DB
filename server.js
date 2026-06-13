@@ -9,6 +9,8 @@ const rateLimit = require('express-rate-limit');
 // to bypass all Railway port and SMTP blocking issues.
 
 const app = express();
+app.set('trust proxy', 1); // Fixes rate limit warnings on Railway
+
 const port = process.env.PORT || 3000;
 
 // Middleware
