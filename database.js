@@ -39,6 +39,32 @@ db.exec(`
     ip_address TEXT,
     FOREIGN KEY (id) REFERENCES keys (id)
   );
+
+  CREATE TABLE IF NOT EXISTS teams (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    leader_username TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS team_members (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    team_id INTEGER NOT NULL,
+    username TEXT NOT NULL UNIQUE,
+    role TEXT DEFAULT 'member',
+    joined_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (team_id) REFERENCES teams (id)
+  );
+
+  CREATE TABLE IF NOT EXISTS referrals (
+    code TEXT PRIMARY KEY,
+    team_id INTEGER NOT NULL,
+    created_by TEXT NOT NULL,
+    is_used INTEGER DEFAULT 0,
+    used_by TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (team_id) REFERENCES teams (id)
+  );
 `);
 
 try {
