@@ -19,16 +19,18 @@ db.exec(`
     imageUrl TEXT,
     discord_id TEXT,
     email TEXT,
-    role TEXT DEFAULT 'member'
+    role TEXT DEFAULT 'member',
+    password TEXT
   );
 `);
 
-// Migration: Add role column if it doesn't exist
+// Migration: Add role and password columns if they don't exist
 try {
   db.prepare("ALTER TABLE keys ADD COLUMN role TEXT DEFAULT 'member'").run();
-} catch (err) {
-  // Column already exists, ignore
-}
+} catch (err) {}
+try {
+  db.prepare("ALTER TABLE keys ADD COLUMN password TEXT").run();
+} catch (err) {}
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS applications (

@@ -101,9 +101,9 @@ const axios = require('axios');
 // Public Referral Registration Endpoint
 app.post('/api/customer/register-referral', async (req, res) => {
   try {
-    const { code, desiredUsername, discordId, email, teamName } = req.body;
-    if (!code || !desiredUsername || !discordId || !email || !teamName) {
-      return res.status(400).json({ success: false, message: 'All fields are required for security purposes.' });
+    const { code, desiredUsername, discordId, email, teamName, password } = req.body;
+    if (!code || !desiredUsername || !discordId || !email || !teamName || !password) {
+      return res.status(400).json({ success: false, message: 'All fields (including password) are required for security purposes.' });
     }
 
     // 1. Validate referral code
@@ -156,9 +156,9 @@ app.post('/api/customer/register-referral', async (req, res) => {
 
     // 4. Create the user as a Key
     db.prepare(`
-      INSERT INTO keys (id, game, label, createdBy, createdAt, expiresAt, active, maxUses, currentUses, notes, imageUrl, discord_id, email) 
-      VALUES (?, 'fivem', ?, ?, ?, ?, 1, 10, 0, 'Joined via Referral', ?, ?, ?)
-    `).run(newKeyId, desiredUsername, referral.created_by, new Date().toISOString(), expiryDate.toISOString(), discordAvatarUrl, discordId, email);
+      INSERT INTO keys (id, game, label, createdBy, createdAt, expiresAt, active, maxUses, currentUses, notes, imageUrl, discord_id, email, password) 
+      VALUES (?, 'fivem', ?, ?, ?, ?, 1, 10, 0, 'Joined via Referral', ?, ?, ?, ?)
+    `).run(newKeyId, desiredUsername, referral.created_by, new Date().toISOString(), expiryDate.toISOString(), discordAvatarUrl, discordId, email, password);
 
     // 5. Add user to team
     db.prepare("INSERT INTO team_members (team_id, username, role, discord_id, email) VALUES (?, ?, 'member', ?, ?)").run(referral.team_id, desiredUsername, discordId, email);
@@ -166,7 +166,37 @@ app.post('/api/customer/register-referral', async (req, res) => {
     // 6. Mark referral as used
     db.prepare('UPDATE referrals SET is_used = 1, used_by = ? WHERE code = ?').run(desiredUsername, code);
 
-    // 7. Auto login response
+    // 7. Auto login response and Email notification
+    if (process.env.SMTP_PASS) {
+      const emailHtml = `
+      <div style="font-family: sans-serif; background-color: #0b0c10; color: #fff; padding: 40px; border-radius: 12px; max-width: 600px; margin: 0 auto;">
+        <h2 style="color: #6366f1;">Welcome to Schwa Scanner!</h2>
+        <p>You have successfully joined the team <strong>${teamName}</strong>.</p>
+        <p>Your account has been created with the following details:</p>
+        <ul style="background-color: #111214; padding: 20px; border-radius: 8px; list-style-type: none;">
+          <li><strong>Username:</strong> ${desiredUsername}</li>
+          <li><strong>Password:</strong> ${password}</li>
+          <li><strong>License Key:</strong> ${newKeyId}</li>
+        </ul>
+        <p>You can use either your Password or your License Key to log in.</p>
+        <p>Best Regards,<br>Schwa Development Team</p>
+      </div>`;
+
+      fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${process.env.SMTP_PASS.trim()}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          from: 'Schwa Scanner <noreply@schwadevelopment.com.tr>',
+          to: email,
+          subject: 'Welcome to Schwa Scanner!',
+          html: emailHtml
+        })
+      }).catch(err => console.error("Resend API Request Error:", err));
+    }
+
     res.json({
       success: true,
       message: 'Registration successful via Referral!',
@@ -463,7 +493,7 @@ app.post('/api/customer/login', (req, res) => {
     }
 
     // Veritabanında Kullanıcı Adı (label) ve Şifresi (id/key) eşleşen bir kayıt var mı kontrol et
-    const userRecord = db.prepare('SELECT * FROM keys WHERE label = ? COLLATE NOCASE AND id = ?').get(username, password);
+    const userRecord = db.prepare('SELECT * FROM keys WHERE label = ? COLLATE NOCASE AND (id = ? OR password = ?)').get(username, password, password);
 
     if (!userRecord) {
       return res.status(401).json({ success: false, message: 'Geçersiz kullanıcı adı veya şifre.' });
@@ -494,6 +524,49 @@ app.post('/api/customer/login', (req, res) => {
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.json({ status: 'ok' });
+});
+
+app.post('/api/customer/forgot-password', (req, res) => {
+  const { email } = req.body;
+  if (!email) return res.status(400).json({ success: false, message: 'Email required' });
+
+  try {
+    const userRecord = db.prepare('SELECT * FROM keys WHERE email = ? COLLATE NOCASE').get(email);
+    if (!userRecord) return res.status(404).json({ success: false, message: 'No account found with this email' });
+
+    const newPassword = Math.random().toString(36).slice(-8);
+    db.prepare('UPDATE keys SET password = ? WHERE id = ?').run(newPassword, userRecord.id);
+
+    if (process.env.SMTP_PASS) {
+      const emailHtml = `
+      <div style="font-family: sans-serif; background-color: #0b0c10; color: #fff; padding: 40px; border-radius: 12px; max-width: 600px; margin: 0 auto;">
+        <h2 style="color: #6366f1;">Password Reset</h2>
+        <p>Your password has been reset successfully.</p>
+        <p>Your new login details:</p>
+        <ul style="background-color: #111214; padding: 20px; border-radius: 8px; list-style-type: none;">
+          <li><strong>Username:</strong> ${userRecord.label}</li>
+          <li><strong>New Password:</strong> ${newPassword}</li>
+        </ul>
+        <p>Best Regards,<br>Schwa Development Team</p>
+      </div>`;
+
+      fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${process.env.SMTP_PASS.trim()}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          from: 'Schwa Scanner <noreply@schwadevelopment.com.tr>',
+          to: email,
+          subject: 'Your New Password - Schwa Scanner',
+          html: emailHtml
+        })
+      }).catch(err => console.error(err));
+    }
+
+    res.json({ success: true, message: 'New password sent to your email.' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
 });
 
 app.listen(port, () => {
