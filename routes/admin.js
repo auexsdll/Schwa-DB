@@ -253,15 +253,17 @@ router.get('/scans', (req, res) => {
     const username = req.headers['x-username'];
 
     let scans = [];
-    if (role !== 'god' && role !== 'admin') {
+    if (role === 'god') {
+      // God sees all scans
+      scans = db.prepare('SELECT scans.*, keys.createdBy as createdBy, keys.label as keyLabel FROM scans LEFT JOIN keys ON scans.id = keys.id ORDER BY scans.scanned_at DESC').all();
+    } else {
+      // Admins and users only see scans for keys they created/own
       if (!username) return res.status(403).json({ error: 'Username required' });
       const userKeys = db.prepare('SELECT id FROM keys WHERE createdBy = ?').all(username).map(k => k.id);
       if (userKeys.length > 0) {
         const placeholders = userKeys.map(() => '?').join(',');
         scans = db.prepare(`SELECT scans.*, keys.createdBy as createdBy, keys.label as keyLabel FROM scans LEFT JOIN keys ON scans.id = keys.id WHERE scans.id IN (${placeholders}) ORDER BY scans.scanned_at DESC`).all(...userKeys);
       }
-    } else {
-      scans = db.prepare('SELECT scans.*, keys.createdBy as createdBy, keys.label as keyLabel FROM scans LEFT JOIN keys ON scans.id = keys.id ORDER BY scans.scanned_at DESC').all();
     }
 
     const formattedScans = scans.map(s => {
@@ -504,10 +506,21 @@ router.post('/applications/:id/respond', async (req, res) => {
 router.get('/keys', (req, res) => {
   try {
     const role = req.headers['x-role'];
+    const username = req.headers['x-username'];
+
     if (role !== 'god' && role !== 'admin') {
       return res.status(403).json({ error: 'Forbidden' });
     }
-    const keys = db.prepare('SELECT * FROM keys ORDER BY createdAt DESC').all();
+
+    let keys;
+    if (role === 'god') {
+      // God panel sees everything
+      keys = db.prepare('SELECT * FROM keys ORDER BY createdAt DESC').all();
+    } else {
+      // Admins only see keys they created
+      keys = db.prepare('SELECT * FROM keys WHERE createdBy = ? ORDER BY createdAt DESC').all(username);
+    }
+    
     res.json(keys);
   } catch (err) {
     console.error(err);

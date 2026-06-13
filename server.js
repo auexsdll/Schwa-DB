@@ -37,10 +37,12 @@ app.use(cors(corsOptions));
 const keysRouter = require('./routes/keys');
 const scansRouter = require('./routes/scans');
 const adminRouter = require('./routes/admin');
+const teamsRouter = require('./routes/teams');
 
 app.use('/api/key', keysRouter);
 app.use('/api/scan', scansRouter);
 app.use('/api/admin', adminRouter);
+app.use('/api/teams', teamsRouter);
 
 const db = require('./database'); // Add this at the top with other requires
 
@@ -89,6 +91,69 @@ app.post('/api/register', async (req, res) => {
   } catch (error) {
     console.error("Register webhook error:", error);
     res.status(500).json({ error: "Failed to send application", details: error.message });
+  }
+});
+
+// Public Referral Registration Endpoint
+app.post('/api/customer/register-referral', (req, res) => {
+  try {
+    const { code, desiredUsername } = req.body;
+    if (!code || !desiredUsername) {
+      return res.status(400).json({ success: false, message: 'Referral code and username are required.' });
+    }
+
+    // 1. Validate referral code
+    const referral = db.prepare('SELECT * FROM referrals WHERE code = ?').get(code);
+    if (!referral) {
+      return res.status(400).json({ success: false, message: 'Invalid referral code.' });
+    }
+    if (referral.is_used === 1) {
+      return res.status(400).json({ success: false, message: 'This referral code has already been used.' });
+    }
+
+    // 2. Check if desired username is taken (in keys or team_members)
+    const existingKey = db.prepare('SELECT id FROM keys WHERE label = ? COLLATE NOCASE').get(desiredUsername);
+    const existingMember = db.prepare('SELECT id FROM team_members WHERE username = ? COLLATE NOCASE').get(desiredUsername);
+    if (existingKey || existingMember) {
+      return res.status(400).json({ success: false, message: 'Username is already taken.' });
+    }
+
+    // 3. Generate a new license key (acts as their password)
+    const chars = '0123456789';
+    let newKeyId = '';
+    for (let i = 0; i < 6; i++) {
+      newKeyId += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+
+    const expiryDate = new Date(Date.now() + 30 * 86400000); 
+
+    // 4. Create the user as a Key
+    db.prepare(`
+      INSERT INTO keys (id, game, label, createdBy, createdAt, expiresAt, active, maxUses, currentUses, notes, imageUrl) 
+      VALUES (?, 'fivem', ?, ?, ?, ?, 1, 10, 0, 'Joined via Referral', '')
+    `).run(newKeyId, desiredUsername, referral.created_by, new Date().toISOString(), expiryDate.toISOString());
+
+    // 5. Add user to team
+    db.prepare("INSERT INTO team_members (team_id, username, role) VALUES (?, ?, 'member')").run(referral.team_id, desiredUsername);
+
+    // 6. Mark referral as used
+    db.prepare('UPDATE referrals SET is_used = 1, used_by = ? WHERE code = ?').run(desiredUsername, code);
+
+    // 7. Auto login response
+    res.json({
+      success: true,
+      message: 'Registration successful via Referral!',
+      user: {
+        username: desiredUsername,
+        role: 'admin', // Give them admin so they can generate keys for their team
+        key: newKeyId,
+        createdAt: new Date().toISOString()
+      }
+    });
+
+  } catch (error) {
+    console.error("Referral registration error:", error);
+    res.status(500).json({ success: false, message: 'Database error' });
   }
 });
 
