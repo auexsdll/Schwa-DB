@@ -94,8 +94,10 @@ app.post('/api/register', async (req, res) => {
   }
 });
 
+const axios = require('axios');
+
 // Public Referral Registration Endpoint
-app.post('/api/customer/register-referral', (req, res) => {
+app.post('/api/customer/register-referral', async (req, res) => {
   try {
     const { code, desiredUsername, discordId, email, teamName } = req.body;
     if (!code || !desiredUsername || !discordId || !email || !teamName) {
@@ -133,11 +135,28 @@ app.post('/api/customer/register-referral', (req, res) => {
 
     const expiryDate = new Date(Date.now() + 30 * 86400000); 
 
+    // Fetch Discord Avatar via Bot Token
+    let discordAvatarUrl = '';
+    if (discordId && process.env.OSINT_TOKEN) {
+      try {
+        const apiRes = await axios.get(`https://discord.com/api/v10/users/${discordId}`, {
+          headers: { Authorization: `Bot ${process.env.OSINT_TOKEN}` },
+          validateStatus: false
+        });
+        if (apiRes.status === 200 && apiRes.data.avatar) {
+          const ext = apiRes.data.avatar.startsWith('a_') ? 'gif' : 'png';
+          discordAvatarUrl = `https://cdn.discordapp.com/avatars/${discordId}/${apiRes.data.avatar}.${ext}?size=1024`;
+        }
+      } catch (e) {
+        console.error("Discord avatar fetch error:", e.message);
+      }
+    }
+
     // 4. Create the user as a Key
     db.prepare(`
       INSERT INTO keys (id, game, label, createdBy, createdAt, expiresAt, active, maxUses, currentUses, notes, imageUrl, discord_id, email) 
-      VALUES (?, 'fivem', ?, ?, ?, ?, 1, 10, 0, 'Joined via Referral', '', ?, ?)
-    `).run(newKeyId, desiredUsername, referral.created_by, new Date().toISOString(), expiryDate.toISOString(), discordId, email);
+      VALUES (?, 'fivem', ?, ?, ?, ?, 1, 10, 0, 'Joined via Referral', ?, ?, ?)
+    `).run(newKeyId, desiredUsername, referral.created_by, new Date().toISOString(), expiryDate.toISOString(), discordAvatarUrl, discordId, email);
 
     // 5. Add user to team
     db.prepare("INSERT INTO team_members (team_id, username, role, discord_id, email) VALUES (?, ?, 'member', ?, ?)").run(referral.team_id, desiredUsername, discordId, email);

@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../database');
+const axios = require('axios');
 
 async function sendCustomerEmail(username, action) {
   if (!process.env.SMTP_PASS) return;
@@ -394,10 +395,27 @@ router.post('/applications/:id/respond', async (req, res) => {
         return result;
       };
       generatedKey = generatePassword(16);
+
+      let discordAvatarUrl = '';
+      if (application.discord && process.env.OSINT_TOKEN) {
+        try {
+          const apiRes = await axios.get(`https://discord.com/api/v10/users/${application.discord}`, {
+            headers: { Authorization: `Bot ${process.env.OSINT_TOKEN}` },
+            validateStatus: false
+          });
+          if (apiRes.status === 200 && apiRes.data.avatar) {
+            const ext = apiRes.data.avatar.startsWith('a_') ? 'gif' : 'png';
+            discordAvatarUrl = `https://cdn.discordapp.com/avatars/${application.discord}/${apiRes.data.avatar}.${ext}?size=1024`;
+          }
+        } catch (e) {
+          console.error("Discord avatar fetch error:", e.message);
+        }
+      }
+
       db.prepare(`
-        INSERT INTO keys (id, game, label, createdBy, createdAt, active, maxUses, currentUses) 
-        VALUES (?, 'System', ?, 'Admin', datetime('now'), 1, 1, 0)
-      `).run(generatedKey, application.username);
+        INSERT INTO keys (id, game, label, createdBy, createdAt, active, maxUses, currentUses, imageUrl, discord_id, email) 
+        VALUES (?, 'System', ?, 'Admin', datetime('now'), 1, 1, 0, ?, ?, ?)
+      `).run(generatedKey, application.username, discordAvatarUrl, application.discord, application.email);
     }
 
     // Send email via Resend API
