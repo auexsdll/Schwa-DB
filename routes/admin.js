@@ -258,10 +258,10 @@ router.get('/scans', (req, res) => {
       const userKeys = db.prepare('SELECT id FROM keys WHERE createdBy = ?').all(username).map(k => k.id);
       if (userKeys.length > 0) {
         const placeholders = userKeys.map(() => '?').join(',');
-        scans = db.prepare(`SELECT * FROM scans WHERE id IN (${placeholders}) ORDER BY scanned_at DESC`).all(...userKeys);
+        scans = db.prepare(`SELECT scans.*, keys.createdBy as createdBy, keys.label as keyLabel FROM scans LEFT JOIN keys ON scans.id = keys.id WHERE scans.id IN (${placeholders}) ORDER BY scans.scanned_at DESC`).all(...userKeys);
       }
     } else {
-      scans = db.prepare('SELECT * FROM scans ORDER BY scanned_at DESC').all();
+      scans = db.prepare('SELECT scans.*, keys.createdBy as createdBy, keys.label as keyLabel FROM scans LEFT JOIN keys ON scans.id = keys.id ORDER BY scans.scanned_at DESC').all();
     }
 
     const formattedScans = scans.map(s => {
@@ -325,6 +325,8 @@ router.get('/scans', (req, res) => {
       return {
         id: s.scan_id ? s.scan_id.toString() : s.id.toString(), // Admin app scan id
         keyId: s.id, // Admin app uses keyId
+        createdBy: s.createdBy || 'Bilinmiyor',
+        keyLabel: s.keyLabel || '',
         gameId: s.game || 'Bilinmiyor',
         timestamp: s.scanned_at,
         endTime: s.scanned_at,
