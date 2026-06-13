@@ -146,7 +146,7 @@ router.post('/referral', (req, res) => {
 // DELETE /api/teams/member
 router.delete('/member', (req, res) => {
   try {
-    const { teamId, targetUsername } = req.body;
+    const { teamId, targetUsername, banAccount } = req.body;
     const username = req.headers['x-username'];
     
     // Verify current user is leader
@@ -155,7 +155,14 @@ router.delete('/member', (req, res) => {
       return res.status(403).json({ error: 'Only team leader can remove members' });
     }
 
+    // Delete from team_members
     db.prepare('DELETE FROM team_members WHERE team_id = ? AND username = ?').run(teamId, targetUsername);
+    
+    // Ban account if requested
+    if (banAccount) {
+      db.prepare('UPDATE keys SET active = 0 WHERE label = ?').run(targetUsername);
+    }
+    
     res.json({ success: true });
   } catch (err) {
     console.error(err);

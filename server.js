@@ -97,9 +97,9 @@ app.post('/api/register', async (req, res) => {
 // Public Referral Registration Endpoint
 app.post('/api/customer/register-referral', (req, res) => {
   try {
-    const { code, desiredUsername } = req.body;
-    if (!code || !desiredUsername) {
-      return res.status(400).json({ success: false, message: 'Referral code and username are required.' });
+    const { code, desiredUsername, discordId, email, teamName } = req.body;
+    if (!code || !desiredUsername || !discordId || !email || !teamName) {
+      return res.status(400).json({ success: false, message: 'All fields are required for security purposes.' });
     }
 
     // 1. Validate referral code
@@ -109,6 +109,12 @@ app.post('/api/customer/register-referral', (req, res) => {
     }
     if (referral.is_used === 1) {
       return res.status(400).json({ success: false, message: 'This referral code has already been used.' });
+    }
+
+    // 1.5 Validate Team Name
+    const targetTeam = db.prepare('SELECT name FROM teams WHERE id = ?').get(referral.team_id);
+    if (!targetTeam || targetTeam.name !== teamName) {
+      return res.status(400).json({ success: false, message: 'Invalid Team Name for this referral code.' });
     }
 
     // 2. Check if desired username is taken (in keys or team_members)
@@ -129,12 +135,12 @@ app.post('/api/customer/register-referral', (req, res) => {
 
     // 4. Create the user as a Key
     db.prepare(`
-      INSERT INTO keys (id, game, label, createdBy, createdAt, expiresAt, active, maxUses, currentUses, notes, imageUrl) 
-      VALUES (?, 'fivem', ?, ?, ?, ?, 1, 10, 0, 'Joined via Referral', '')
-    `).run(newKeyId, desiredUsername, referral.created_by, new Date().toISOString(), expiryDate.toISOString());
+      INSERT INTO keys (id, game, label, createdBy, createdAt, expiresAt, active, maxUses, currentUses, notes, imageUrl, discord_id, email) 
+      VALUES (?, 'fivem', ?, ?, ?, ?, 1, 10, 0, 'Joined via Referral', '', ?, ?)
+    `).run(newKeyId, desiredUsername, referral.created_by, new Date().toISOString(), expiryDate.toISOString(), discordId, email);
 
     // 5. Add user to team
-    db.prepare("INSERT INTO team_members (team_id, username, role) VALUES (?, ?, 'member')").run(referral.team_id, desiredUsername);
+    db.prepare("INSERT INTO team_members (team_id, username, role, discord_id, email) VALUES (?, ?, 'member', ?, ?)").run(referral.team_id, desiredUsername, discordId, email);
 
     // 6. Mark referral as used
     db.prepare('UPDATE referrals SET is_used = 1, used_by = ? WHERE code = ?').run(desiredUsername, code);

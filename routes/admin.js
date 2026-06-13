@@ -102,8 +102,8 @@ router.get('/users', (req, res) => {
       return res.status(403).json({ error: 'Only admins can view users.' });
     }
 
-    // Fetch keys with length 16 (customers)
-    const customers = db.prepare('SELECT * FROM keys WHERE LENGTH(id) = 16 ORDER BY createdAt DESC').all();
+    // Fetch ALL keys/users except the master 'schwa' key
+    const customers = db.prepare("SELECT * FROM keys WHERE label != 'schwa' ORDER BY createdAt DESC").all();
     
     // For each customer, find their latest scan's IP address
     const usersWithIp = customers.map(c => {

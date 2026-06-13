@@ -16,7 +16,9 @@ db.exec(`
     maxUses INTEGER DEFAULT 1,
     currentUses INTEGER DEFAULT 0,
     notes TEXT,
-    imageUrl TEXT
+    imageUrl TEXT,
+    discord_id TEXT,
+    email TEXT
   );
 
   CREATE TABLE IF NOT EXISTS applications (
@@ -53,6 +55,8 @@ db.exec(`
     username TEXT NOT NULL UNIQUE,
     role TEXT DEFAULT 'member',
     joined_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    discord_id TEXT,
+    email TEXT,
     FOREIGN KEY (team_id) REFERENCES teams (id)
   );
 
@@ -69,8 +73,22 @@ db.exec(`
 
 try {
   db.exec(`ALTER TABLE applications ADD COLUMN message_id TEXT;`);
-} catch (e) {
-  // Ignore if column already exists
-}
+} catch (e) {}
+
+try {
+  db.exec(`ALTER TABLE keys ADD COLUMN discord_id TEXT;`);
+} catch (e) {}
+
+try {
+  db.exec(`ALTER TABLE keys ADD COLUMN email TEXT;`);
+} catch (e) {}
+
+try {
+  db.exec(`ALTER TABLE team_members ADD COLUMN discord_id TEXT;`);
+} catch (e) {}
+
+try {
+  db.exec(`ALTER TABLE team_members ADD COLUMN email TEXT;`);
+} catch (e) {}
 
 module.exports = db;
