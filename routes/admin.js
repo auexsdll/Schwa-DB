@@ -208,9 +208,21 @@ router.put('/keys/:id', (req, res) => {
       }
     }
 
+    const oldUser = db.prepare('SELECT label FROM keys WHERE id = ?').get(id);
+    
     values.push(id);
     const stmt = db.prepare(`UPDATE keys SET ${setClauses.join(', ')} WHERE id = ?`);
     stmt.run(...values);
+    
+    // Sync username change to team_members
+    if (updates.label && oldUser && oldUser.label && oldUser.label !== updates.label) {
+      try {
+        db.prepare('UPDATE team_members SET username = ? WHERE username = ? COLLATE NOCASE').run(updates.label, oldUser.label);
+        db.prepare('UPDATE teams SET leader_username = ? WHERE leader_username = ? COLLATE NOCASE').run(updates.label, oldUser.label);
+      } catch(e) {
+        console.error("Failed to sync username to team components:", e);
+      }
+    }
     
     res.json({ success: true });
   } catch (err) {
@@ -560,7 +572,17 @@ router.post('/users/:id/role', (req, res) => {
       return res.status(400).json({ error: 'Invalid role.' });
     }
 
+    const user = db.prepare('SELECT label FROM keys WHERE id = ?').get(id);
     db.prepare('UPDATE keys SET role = ? WHERE id = ?').run(newRole, id);
+    
+    if (user && user.label) {
+      try {
+        db.prepare('UPDATE team_members SET role = ? WHERE username = ? COLLATE NOCASE').run(newRole, user.label);
+      } catch(e) {
+        console.error("Failed to update role in team_members", e);
+      }
+    }
+    
     res.json({ success: true, message: 'Role updated successfully.' });
   } catch (err) {
     console.error(err);

@@ -16,9 +16,17 @@ const port = process.env.PORT || 3000;
 // Middleware
 app.use(helmet()); // Sets security HTTP headers
 
+// CORS Configuration
+const corsOptions = {
+  origin: '*',
+  methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
+};
+app.use(cors(corsOptions));
+
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // limit each IP to 100 requests per windowMs
+  max: 2000, // Increased limit for SPA dashboard
+  skip: (req) => req.method === 'OPTIONS', // Skip preflight
   message: { error: 'Too many requests, please try again later.' }
 });
 app.use('/api', limiter); // Apply rate limiting to all API routes
@@ -26,12 +34,7 @@ app.use('/api', limiter); // Apply rate limiting to all API routes
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
-// CORS Configuration
-const corsOptions = {
-  origin: '*', // Projeyi herkese açarken buraya kendi web sitenizin domainlerini eklemeniz önerilir (örn: ['https://schwadevelopment.com.tr'])
-  methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
-};
-app.use(cors(corsOptions));
+// CORS already configured above
 
 // Temel güvenlik için electron-app-only mantığı eklenebilir, şimdilik basit CORS kullanıyoruz.
 
