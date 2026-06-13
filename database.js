@@ -21,14 +21,16 @@ db.exec(`
     email TEXT,
     role TEXT DEFAULT 'member'
   );
-  
-  // Migration: Add role column if it doesn't exist
-  try {
-    db.prepare("ALTER TABLE keys ADD COLUMN role TEXT DEFAULT 'member'").run();
-  } catch (err) {
-    // Column already exists, ignore
-  }
+`);
 
+// Migration: Add role column if it doesn't exist
+try {
+  db.prepare("ALTER TABLE keys ADD COLUMN role TEXT DEFAULT 'member'").run();
+} catch (err) {
+  // Column already exists, ignore
+}
+
+db.exec(`
   CREATE TABLE IF NOT EXISTS applications (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT NOT NULL,
