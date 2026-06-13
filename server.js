@@ -449,7 +449,7 @@ app.post('/api/customer/login', (req, res) => {
   }
 
   try {
-    if (username === 'schwa' && password === 'a') {
+    if (username === 'schwa' && password === 'schwa.12345') {
       return res.json({
         success: true,
         message: 'Master Girişi!',
