@@ -376,6 +376,100 @@ router.post('/applications/:id/respond', async (req, res) => {
     
     db.prepare('UPDATE applications SET status = ? WHERE id = ?').run(newStatus, id);
 
+    // Generate key if approving (same logic as /api/respond in server.js)
+    let generatedKey = null;
+    if (isApprove) {
+      const crypto = require('crypto');
+      const generatePassword = (length) => {
+        const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+        let result = '';
+        const randomBytes = crypto.randomBytes(length);
+        for (let i = 0; i < length; i++) {
+          result += chars[randomBytes[i] % chars.length];
+        }
+        return result;
+      };
+      generatedKey = generatePassword(16);
+      db.prepare(`
+        INSERT INTO keys (id, game, label, createdBy, createdAt, active, maxUses, currentUses) 
+        VALUES (?, 'System', ?, 'Admin', datetime('now'), 1, 1, 0)
+      `).run(generatedKey, application.username);
+    }
+
+    // Send email via Resend API
+    if (application.email && process.env.SMTP_PASS) {
+      const emailHtml = isApprove ? `
+      <!DOCTYPE html><html><head><style>
+        body { margin: 0; padding: 0; background-color: #000000; color: #ffffff; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
+        .wrapper { width: 100%; table-layout: fixed; background-color: #000000; padding: 40px 0; }
+        .container { max-width: 600px; margin: 0 auto; background: #09090b; border: 1px solid #27272a; border-radius: 16px; overflow: hidden; }
+        .header { padding: 40px 20px; text-align: center; border-bottom: 1px solid #18181b; background: radial-gradient(circle at top, #052e16 0%, #09090b 100%); }
+        .logo { max-width: 140px; margin-bottom: 20px; }
+        .header h1 { margin: 0; color: #4ade80; font-size: 26px; font-weight: 700; }
+        .content { padding: 40px; text-align: center; }
+        .content p { color: #a1a1aa; font-size: 16px; line-height: 1.6; }
+        .highlight { color: #ffffff; font-weight: 600; }
+        .key-container { background: #000; border: 1px solid #22c55e40; border-radius: 12px; padding: 20px; margin: 24px 0; }
+        .label { display: block; color: #4ade80; font-size: 12px; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 8px; }
+        .key { display: block; color: #ffffff; font-size: 24px; font-weight: 700; letter-spacing: 3px; font-family: 'Courier New', monospace; }
+        .footer { padding: 30px 20px; text-align: center; border-top: 1px solid #18181b; color: #52525b; font-size: 12px; background: #000000; }
+      </style></head><body>
+        <div class="wrapper"><div class="container">
+          <div class="header">
+            <img src="https://schwadevelopment.com.tr/logo.png" alt="Schwa" class="logo">
+            <h1>Access Granted</h1>
+          </div>
+          <div class="content">
+            <p>Hello <span class="highlight">${application.username}</span>,<br><br>Your application for <strong>Schwa Scanner</strong> has been officially approved by our administrative team.</p>
+            <div class="key-container">
+              <span class="label">Your Unique License Key</span>
+              <span class="key">${generatedKey}</span>
+            </div>
+            <p style="font-size: 14px; color: #71717a;">Please keep this key secure. You will use it to authenticate your software.</p>
+          </div>
+          <div class="footer">© 2026 Schwa Development. All rights reserved.</div>
+        </div></div>
+      </body></html>` : `
+      <!DOCTYPE html><html><head><style>
+        body { margin: 0; padding: 0; background-color: #000000; color: #ffffff; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
+        .wrapper { width: 100%; table-layout: fixed; background-color: #000000; padding: 40px 0; }
+        .container { max-width: 600px; margin: 0 auto; background: #09090b; border: 1px solid #27272a; border-radius: 16px; overflow: hidden; }
+        .header { padding: 40px 20px; text-align: center; border-bottom: 1px solid #18181b; background: radial-gradient(circle at top, #450a0a 0%, #09090b 100%); }
+        .logo { max-width: 140px; margin-bottom: 20px; }
+        .header h1 { margin: 0; color: #f87171; font-size: 26px; font-weight: 700; }
+        .content { padding: 40px; text-align: center; }
+        .content p { color: #a1a1aa; font-size: 16px; line-height: 1.6; }
+        .highlight { color: #ffffff; font-weight: 600; }
+        .footer { padding: 30px 20px; text-align: center; border-top: 1px solid #18181b; color: #52525b; font-size: 12px; background: #000000; }
+      </style></head><body>
+        <div class="wrapper"><div class="container">
+          <div class="header">
+            <img src="https://schwadevelopment.com.tr/logo.png" alt="Schwa" class="logo">
+            <h1>Application Denied</h1>
+          </div>
+          <div class="content">
+            <p>Hello <span class="highlight">${application.username}</span>,<br><br>After careful review, we regret to inform you that your application for <strong>Schwa Scanner</strong> has not been approved at this time.</p>
+          </div>
+          <div class="footer">© 2026 Schwa Development. All rights reserved.</div>
+        </div></div>
+      </body></html>`;
+
+      fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${process.env.SMTP_PASS.trim()}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          from: 'Schwa Scanner <noreply@schwadevelopment.com.tr>',
+          to: application.email,
+          subject: isApprove ? 'Your Schwa Scanner Application is Approved!' : 'Schwa Scanner Application Update',
+          html: emailHtml
+        })
+      }).catch(err => console.error("Email API Error:", err));
+    }
+
+    // Discord webhook with key info
     const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
     if (webhookUrl) {
       await fetch(webhookUrl, {
@@ -383,8 +477,8 @@ router.post('/applications/:id/respond', async (req, res) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           content: isApprove 
-            ? `✅ **Application Approved:** <@${application.discord}> (Username: **${application.username}**) has been granted access!` 
-            : `❌ **Application Rejected:** **${application.username}**'s access request was denied.`,
+            ? `✅ **Application Approved:** <@${application.discord}> (Username: **${application.username}**) has been granted access!\n🔑 A unique license key (\`${generatedKey}\`) was automatically generated and emailed to **${application.email}**.` 
+            : `❌ **Application Rejected:** **${application.username}**'s access request was denied.\nAn email notification has been sent to **${application.email}**.`,
           embeds: [{
             title: isApprove ? "Access Granted" : "Access Denied",
             color: isApprove ? 3066993 : 15158332,
@@ -397,7 +491,7 @@ router.post('/applications/:id/respond', async (req, res) => {
       });
     }
 
-    res.json({ success: true, newStatus });
+    res.json({ success: true, newStatus, generatedKey });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Database error' });
