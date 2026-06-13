@@ -59,18 +59,19 @@ router.get('/my-team', (req, res) => {
       if (keys.length > 0) {
         const keyIds = keys.map(k => k.id);
         const scanPlaceholders = keyIds.map(() => '?').join(',');
-        const scans = db.prepare(`SELECT results_json, verdict FROM scans WHERE id IN (${scanPlaceholders})`).all(...keyIds);
+        const scans = db.prepare(`SELECT results_json FROM scans WHERE id IN (${scanPlaceholders})`).all(...keyIds);
         totalScans = scans.length;
         
         scans.forEach(s => {
-          if (s.verdict === 'Critical' || s.verdict === 'High Risk') totalCaught++;
+          let hasCritical = false;
           try {
              const resJson = JSON.parse(s.results_json);
              resJson.forEach(f => {
                if (f.seviye === 'Critical' || f.seviye === 'High') {
-                 // We could count individual findings, but let's stick to overall scan verdict
+                 hasCritical = true;
                }
              });
+             if (hasCritical) totalCaught++;
           } catch(e) {}
         });
       }
