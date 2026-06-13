@@ -129,15 +129,25 @@ router.post('/create', (req, res) => {
 // POST /api/teams/referral
 router.post('/referral', (req, res) => {
   try {
-    const { teamId } = req.body;
+    const { teamId, amount } = req.body;
     const username = req.headers['x-username'];
     
-    // Generate a secure 8-character code
-    const code = crypto.randomBytes(4).toString('hex').toUpperCase();
+    let count = parseInt(amount) || 1;
+    if (count > 50) count = 50; // max 50 at once
+    if (count < 1) count = 1;
 
-    db.prepare('INSERT INTO referrals (code, team_id, created_by) VALUES (?, ?, ?)').run(code, teamId, username);
+    const codes = [];
+    const stmt = db.prepare('INSERT INTO referrals (code, team_id, created_by) VALUES (?, ?, ?)');
     
-    res.json({ success: true, code });
+    db.transaction(() => {
+      for (let i = 0; i < count; i++) {
+        const code = crypto.randomBytes(4).toString('hex').toUpperCase();
+        stmt.run(code, teamId, username);
+        codes.push(code);
+      }
+    })();
+    
+    res.json({ success: true, codes });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Database error' });
