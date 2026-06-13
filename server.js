@@ -3,6 +3,8 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const crypto = require('crypto');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 // No need for nodemailer anymore, we will use direct REST API
 // to bypass all Railway port and SMTP blocking issues.
 
@@ -10,11 +12,24 @@ const app = express();
 const port = process.env.PORT || 3000;
 
 // Middleware
+app.use(helmet()); // Sets security HTTP headers
+
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // limit each IP to 100 requests per windowMs
+  message: { error: 'Too many requests, please try again later.' }
+});
+app.use('/api', limiter); // Apply rate limiting to all API routes
+
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 // CORS Configuration
-app.use(cors());
+const corsOptions = {
+  origin: '*', // Projeyi herkese açarken buraya kendi web sitenizin domainlerini eklemeniz önerilir (örn: ['https://schwadevelopment.com.tr'])
+  methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
+};
+app.use(cors(corsOptions));
 
 // Temel güvenlik için electron-app-only mantığı eklenebilir, şimdilik basit CORS kullanıyoruz.
 
