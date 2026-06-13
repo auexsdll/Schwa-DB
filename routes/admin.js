@@ -500,4 +500,19 @@ router.post('/applications/:id/respond', async (req, res) => {
   }
 });
 
+// GET /api/admin/keys
+router.get('/keys', (req, res) => {
+  try {
+    const role = req.headers['x-role'];
+    if (role !== 'god' && role !== 'admin') {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    const keys = db.prepare('SELECT * FROM keys ORDER BY createdAt DESC').all();
+    res.json(keys);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
 module.exports = router;
