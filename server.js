@@ -575,9 +575,36 @@ app.post('/api/customer/forgot-password', (req, res) => {
     res.status(500).json({ success: false, message: 'Server error' });
   }
 });
+// Notification Routes
+app.get('/api/notifications', (req, res) => {
+  try {
+    const notifications = db.prepare('SELECT * FROM notifications ORDER BY created_at DESC LIMIT 50').all();
+    res.json({ success: true, notifications });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+app.post('/api/notifications', (req, res) => {
+  const { title, message, type, adminToken } = req.body;
+  if (adminToken !== process.env.ADMIN_TOKEN) {
+    return res.status(403).json({ success: false, message: 'Unauthorized' });
+  }
+  if (!title || !message) {
+    return res.status(400).json({ success: false, message: 'Missing fields' });
+  }
+  try {
+    const stmt = db.prepare('INSERT INTO notifications (title, message, type) VALUES (?, ?, ?)');
+    stmt.run(title, message, type || 'info');
+    res.json({ success: true, message: 'Notification sent' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
 
 app.listen(port, () => {
   console.lang = 'tr';
   console.log(`Backend server ${port} portunda çalışıyor.`);
 });
-
