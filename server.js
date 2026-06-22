@@ -606,6 +606,48 @@ app.post('/api/notifications', (req, res) => {
   }
 });
 
+app.delete('/api/notifications/:id', (req, res) => {
+  const adminSecret = req.headers['x-admin-secret'];
+  if (!adminSecret || adminSecret !== process.env.ADMIN_SECRET) {
+    return res.status(403).json({ success: false, message: 'Unauthorized' });
+  }
+  try {
+    const stmt = db.prepare('DELETE FROM notifications WHERE id = ?');
+    const result = stmt.run(req.params.id);
+    if (result.changes > 0) {
+      res.json({ success: true, message: 'Notification deleted' });
+    } else {
+      res.status(404).json({ success: false, message: 'Notification not found' });
+    }
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+app.put('/api/notifications/:id', (req, res) => {
+  const { title, message, type } = req.body;
+  const adminSecret = req.headers['x-admin-secret'];
+  if (!adminSecret || adminSecret !== process.env.ADMIN_SECRET) {
+    return res.status(403).json({ success: false, message: 'Unauthorized' });
+  }
+  if (!title || !message) {
+    return res.status(400).json({ success: false, message: 'Missing fields' });
+  }
+  try {
+    const stmt = db.prepare('UPDATE notifications SET title = ?, message = ?, type = ? WHERE id = ?');
+    const result = stmt.run(title, message, type || 'info', req.params.id);
+    if (result.changes > 0) {
+      res.json({ success: true, message: 'Notification updated' });
+    } else {
+      res.status(404).json({ success: false, message: 'Notification not found' });
+    }
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
 app.listen(port, () => {
   console.lang = 'tr';
   console.log(`Backend server ${port} portunda çalışıyor.`);
