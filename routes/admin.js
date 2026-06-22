@@ -282,8 +282,17 @@ router.get('/scans', (req, res) => {
     const formattedScans = scans.map(s => {
       let parsedResults = [];
       try {
-        parsedResults = JSON.parse(s.results_json);
-      } catch (e) {}
+        let rawParsed = JSON.parse(s.results_json);
+        if (Array.isArray(rawParsed)) {
+          parsedResults = rawParsed;
+        } else if (rawParsed && Array.isArray(rawParsed.findings)) {
+          parsedResults = rawParsed.findings;
+        } else if (rawParsed && typeof rawParsed === 'object') {
+          parsedResults = [rawParsed];
+        }
+      } catch (e) {
+        parsedResults = [];
+      }
       
       let riskScore = 0;
       let suspiciousCount = 0;
