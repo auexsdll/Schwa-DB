@@ -648,6 +648,17 @@ app.put('/api/notifications/:id', (req, res) => {
   }
 });
 
+// Public Whitelist API for Scanner Engine
+app.get('/api/public/whitelist', (req, res) => {
+  try {
+    const items = db.prepare('SELECT keyword FROM whitelist').all();
+    res.json({ success: true, keywords: items.map(i => i.keyword) });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, keywords: [] });
+  }
+});
+
 app.listen(port, () => {
   console.lang = 'tr';
   console.log(`Backend server ${port} portunda çalışıyor.`);
