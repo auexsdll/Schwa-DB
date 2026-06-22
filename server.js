@@ -587,8 +587,10 @@ app.get('/api/notifications', (req, res) => {
 });
 
 app.post('/api/notifications', (req, res) => {
-  const { title, message, type, adminToken } = req.body;
-  if (adminToken !== process.env.ADMIN_TOKEN) {
+  const { title, message, type } = req.body;
+  const adminSecret = req.headers['x-admin-secret'];
+  
+  if (!adminSecret || adminSecret !== process.env.ADMIN_SECRET) {
     return res.status(403).json({ success: false, message: 'Unauthorized' });
   }
   if (!title || !message) {
