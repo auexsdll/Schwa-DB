@@ -211,7 +211,7 @@ router.get('/profile/:id', (req, res) => {
   try {
     const stmt = db.prepare(`
       SELECT id, game, label, createdBy, createdAt, discord_id, email, role, avatar_url, banner_url, bio, profile_color
-      FROM keys WHERE id = ?
+      FROM keys WHERE label = ? COLLATE NOCASE
     `);
     const user = stmt.get(req.params.id);
     if (!user) {
@@ -223,9 +223,9 @@ router.get('/profile/:id', (req, res) => {
       SELECT tm.role as team_role, tm.custom_role, t.name, t.logo_url, t.description, t.color
       FROM team_members tm
       JOIN teams t ON tm.team_id = t.id
-      WHERE tm.username = ?
+      WHERE tm.username = ? COLLATE NOCASE
     `);
-    const team = teamStmt.get(user.id);
+    const team = teamStmt.get(user.label);
     
     res.json({ success: true, user: { ...user, team: team || null } });
   } catch (error) {
