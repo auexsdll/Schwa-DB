@@ -185,7 +185,7 @@ router.get('/profile', async (req, res) => {
 
 // Update user profile
 router.post('/profile', authMiddleware, (req, res) => {
-  const { avatar_url, banner_url, bio, profile_color } = req.body;
+  const { avatar_url, banner_url, bio, profile_color, social_link } = req.body;
   const userId = req.user.id;
 
   try {
@@ -194,11 +194,12 @@ router.post('/profile', authMiddleware, (req, res) => {
       SET avatar_url = COALESCE(?, avatar_url),
           banner_url = COALESCE(?, banner_url),
           bio = COALESCE(?, bio),
-          profile_color = COALESCE(?, profile_color)
+          profile_color = COALESCE(?, profile_color),
+          social_link = COALESCE(?, social_link)
       WHERE id = ?
     `);
     
-    stmt.run(avatar_url, banner_url, bio, profile_color, userId);
+    stmt.run(avatar_url, banner_url, bio, profile_color, social_link, userId);
     res.json({ success: true, message: 'Profile updated successfully' });
   } catch (error) {
     console.error('Profile update error:', error);
@@ -210,7 +211,7 @@ router.post('/profile', authMiddleware, (req, res) => {
 router.get('/profile/:id', (req, res) => {
   try {
     const stmt = db.prepare(`
-      SELECT id, game, label, createdBy, createdAt, discord_id, email, role, avatar_url, banner_url, bio, profile_color
+      SELECT id, game, label, createdBy, createdAt, discord_id, email, role, avatar_url, banner_url, bio, profile_color, social_link, active
       FROM keys WHERE label = ? COLLATE NOCASE
     `);
     const user = stmt.get(req.params.id);

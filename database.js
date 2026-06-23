@@ -33,12 +33,15 @@ db.exec(`
   );
 `);
 
-// Migration: Add role and password columns if they don't exist
+// Migration: Add role, password, and social_link columns if they don't exist
 try {
   db.prepare("ALTER TABLE keys ADD COLUMN role TEXT DEFAULT 'member'").run();
 } catch (err) {}
 try {
   db.prepare("ALTER TABLE keys ADD COLUMN password TEXT").run();
+} catch (err) {}
+try {
+  db.prepare("ALTER TABLE keys ADD COLUMN social_link TEXT").run();
 } catch (err) {}
 
 db.exec(`
