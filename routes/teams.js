@@ -192,9 +192,9 @@ router.delete('/member', (req, res) => {
 });
 
 // Update team settings (Leader only)
-router.post('/settings', authMiddleware, (req, res) => {
+router.post('/settings', (req, res) => {
   const { logo_url, description, color } = req.body;
-  const username = req.user.id; // User must be the leader
+  const username = req.headers['x-username']; // User must be the leader
 
   try {
     const team = db.prepare('SELECT * FROM teams WHERE leader_username = ?').get(username);
@@ -219,8 +219,8 @@ router.post('/settings', authMiddleware, (req, res) => {
 });
 
 // Delete/Disband team (Leader only)
-router.delete('/disband', authMiddleware, (req, res) => {
-  const username = req.user.id;
+router.delete('/disband', (req, res) => {
+  const username = req.headers['x-username'];
 
   try {
     const team = db.prepare('SELECT * FROM teams WHERE leader_username = ?').get(username);
@@ -241,9 +241,9 @@ router.delete('/disband', authMiddleware, (req, res) => {
 });
 
 // Add custom role
-router.post('/roles', authMiddleware, (req, res) => {
+router.post('/roles', (req, res) => {
   const { role_name, role_color } = req.body;
-  const username = req.user.id;
+  const username = req.headers['x-username'];
   try {
     const team = db.prepare('SELECT * FROM teams WHERE leader_username = ?').get(username);
     if (!team) return res.status(404).json({ success: false, message: 'Team not found or unauthorized' });
@@ -259,9 +259,9 @@ router.post('/roles', authMiddleware, (req, res) => {
 });
 
 // Delete custom role
-router.delete('/roles/:id', authMiddleware, (req, res) => {
+router.delete('/roles/:id', (req, res) => {
   const roleId = req.params.id;
-  const username = req.user.id;
+  const username = req.headers['x-username'];
   try {
     const team = db.prepare('SELECT * FROM teams WHERE leader_username = ?').get(username);
     if (!team) return res.status(404).json({ success: false, message: 'Unauthorized' });
@@ -279,9 +279,9 @@ router.delete('/roles/:id', authMiddleware, (req, res) => {
 });
 
 // Assign role to member
-router.post('/members/role', authMiddleware, (req, res) => {
+router.post('/members/role', (req, res) => {
   const { target_username, role_type, role_name } = req.body; // role_type: 'admin', 'member', 'custom'
-  const username = req.user.id;
+  const username = req.headers['x-username'];
   try {
     const team = db.prepare('SELECT * FROM teams WHERE leader_username = ?').get(username);
     if (!team) return res.status(404).json({ success: false, message: 'Unauthorized' });
