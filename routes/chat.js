@@ -23,6 +23,9 @@ const authenticate = (req, res, next) => {
 // Get last 50 chat messages
 router.get('/messages', authenticate, (req, res) => {
   try {
+    // Auto-delete messages older than 2 days
+    db.prepare("DELETE FROM chat_messages WHERE created_at < datetime('now', '-2 days')").run();
+
     const stmt = db.prepare(`
       SELECT c.*, k.label as username, k.discord_id, k.email, k.avatar_url, k.profile_color, tm.team_id, t.name as team_name, t.logo_url as team_logo
       FROM chat_messages c
