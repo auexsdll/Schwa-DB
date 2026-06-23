@@ -3,6 +3,16 @@ const router = express.Router();
 const db = require('../database');
 const axios = require('axios');
 
+function logAudit(admin_username, action, target, details) {
+  try {
+    db.prepare('INSERT INTO audit_logs (admin_username, action, target, details) VALUES (?, ?, ?, ?)').run(
+      admin_username || 'System', action, target || '', details || ''
+    );
+  } catch (e) {
+    console.error('Audit log error:', e);
+  }
+}
+
 async function sendCustomerEmail(username, action) {
   if (!process.env.SMTP_PASS) return;
   // Sadece müşteriler için application kaydı vardır, normal admin keyleri için dönmez.
@@ -165,6 +175,10 @@ router.post('/keys', (req, res) => {
       id, game, label, createdBy, createdAt, expiresAt, 
       active ? 1 : 0, maxUses || 1, currentUses || 0, notes || '', imageUrl || ''
     );
+    
+    const adminUsername = req.headers['x-username'] || createdBy;
+    logAudit(adminUsername, 'KEY_CREATED', label || id, `Created key for game: ${game}, max uses: ${maxUses || 1}`);
+    
     res.json({ success: true, id });
   } catch (err) {
     console.error(err);
@@ -224,6 +238,8 @@ router.put('/keys/:id', (req, res) => {
       }
     }
     
+    logAudit(username || 'Unknown', 'KEY_UPDATED', oldUser ? oldUser.label : id, `Updated fields: ${Object.keys(updates).join(', ')}`);
+    
     res.json({ success: true });
   } catch (err) {
     console.error(err);
@@ -250,8 +266,12 @@ router.delete('/keys/:id', (req, res) => {
       if (customer) sendCustomerEmail(customer.label, 'closed');
     }
 
+    const deletedKey = db.prepare('SELECT label FROM keys WHERE id = ?').get(id);
     db.prepare('DELETE FROM scans WHERE id = ?').run(id); // Delete associated scans first
     db.prepare('DELETE FROM keys WHERE id = ?').run(id);
+    
+    logAudit(username || 'Unknown', 'KEY_DELETED', deletedKey ? deletedKey.label : id, `Deleted key ${id}`);
+
     res.json({ success: true });
   } catch (err) {
     console.error(err);
@@ -401,6 +421,9 @@ router.post('/applications/:id/respond', async (req, res) => {
     const newStatus = isApprove ? 'approved' : 'rejected';
     
     db.prepare('UPDATE applications SET status = ? WHERE id = ?').run(newStatus, id);
+
+    const adminUsername = req.headers['x-username'] || 'Unknown';
+    logAudit(adminUsername, `APP_${newStatus.toUpperCase()}`, application.username, `Responded to application for ${application.username}`);
 
     // Generate key if approving (same logic as /api/respond in server.js)
     let generatedKey = null;
@@ -584,6 +607,9 @@ router.post('/users/:id/role', (req, res) => {
     const user = db.prepare('SELECT label FROM keys WHERE id = ?').get(id);
     db.prepare('UPDATE keys SET role = ? WHERE id = ?').run(newRole, id);
     
+    const adminUsername = req.headers['x-username'] || 'Unknown';
+    logAudit(adminUsername, 'ROLE_CHANGED', user ? user.label : id, `Role changed to ${newRole}`);
+    
     if (user && user.label) {
       try {
         db.prepare('UPDATE team_members SET role = ? WHERE username = ? COLLATE NOCASE').run(newRole, user.label);
@@ -634,6 +660,8 @@ router.put('/false-positives/:id/status', (req, res) => {
 
     db.prepare('UPDATE false_positives SET status = ?, reviewed_by = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(status, adminUsername, id);
 
+    logAudit(adminUsername, `FP_${status.toUpperCase()}`, fp.file_path, fp.reason);
+
     // If approved, add to whitelist
     if (status === 'approved') {
       try {
@@ -665,6 +693,19 @@ router.get('/whitelist', (req, res) => {
     const items = db.prepare('SELECT keyword FROM whitelist').all();
     const keywords = items.map(item => item.keyword);
     res.json({ keywords });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// GET /api/admin/audit-logs
+router.get('/audit-logs', (req, res) => {
+  try {
+    const role = req.headers['x-role'];
+    if (role !== 'god') return res.status(403).json({ error: 'Only God can view audit logs' });
+    const logs = db.prepare('SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT 500').all();
+    res.json(logs);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Database error' });
