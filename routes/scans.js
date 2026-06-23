@@ -186,17 +186,17 @@ router.get('/public/:pin', (req, res) => {
 
 // POST /api/scan/false-positive
 router.post('/false-positive', async (req, res) => {
-  const { scan_id, finding_id, file_path, reason, user_id } = req.body;
+  const { scan_id, finding_id, file_path, reason, user_id, full_data } = req.body;
   if (!file_path || !reason) {
     return res.status(400).json({ error: 'Missing required fields' });
   }
 
   try {
     const stmt = db.prepare(`
-      INSERT INTO false_positives (scan_id, user_id, file_path, finding_id, reason, status)
-      VALUES (?, ?, ?, ?, ?, 'pending')
+      INSERT INTO false_positives (scan_id, user_id, file_path, finding_id, reason, status, full_data)
+      VALUES (?, ?, ?, ?, ?, 'pending', ?)
     `);
-    stmt.run(scan_id || null, user_id || null, file_path, finding_id || null, reason);
+    stmt.run(scan_id || null, user_id || null, file_path, finding_id || null, reason, full_data ? JSON.stringify(full_data) : null);
     res.json({ success: true, message: 'False positive reported successfully' });
   } catch (error) {
     console.error('False positive insert error:', error);

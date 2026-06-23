@@ -149,4 +149,8 @@ try {
   db.exec(`ALTER TABLE team_members ADD COLUMN email TEXT;`);
 } catch (e) {}
 
+try {
+  db.exec(`ALTER TABLE false_positives ADD COLUMN full_data TEXT;`);
+} catch (e) {}
+
 module.exports = db;
