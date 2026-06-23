@@ -24,10 +24,10 @@ const authenticate = (req, res, next) => {
 router.get('/messages', authenticate, (req, res) => {
   try {
     const stmt = db.prepare(`
-      SELECT c.*, k.discord_id, k.email, k.avatar_url, k.profile_color, tm.team_id, t.name as team_name, t.logo_url as team_logo
+      SELECT c.*, k.label as username, k.discord_id, k.email, k.avatar_url, k.profile_color, tm.team_id, t.name as team_name, t.logo_url as team_logo
       FROM chat_messages c
       JOIN keys k ON c.user_id = k.id
-      LEFT JOIN team_members tm ON k.id = tm.username
+      LEFT JOIN team_members tm ON k.label = tm.username COLLATE NOCASE
       LEFT JOIN teams t ON tm.team_id = t.id
       ORDER BY c.created_at DESC
       LIMIT 50

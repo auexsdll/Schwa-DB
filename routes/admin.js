@@ -135,6 +135,30 @@ router.get('/users', (req, res) => {
   }
 });
 
+// POST /api/admin/users/:id/password
+router.post('/users/:id/password', (req, res) => {
+  try {
+    const role = req.headers['x-role'];
+    if (role !== 'god') {
+      return res.status(403).json({ error: 'Only God can change passwords.' });
+    }
+    const { newPassword } = req.body;
+    if (!newPassword) return res.status(400).json({ error: 'Password required.' });
+
+    const stmt = db.prepare('UPDATE keys SET password = ? WHERE id = ?');
+    stmt.run(newPassword, req.params.id);
+
+    // Audit log
+    const auditStmt = db.prepare('INSERT INTO audit_logs (admin_username, action, target, details) VALUES (?, ?, ?, ?)');
+    auditStmt.run(req.headers['x-username'] || 'Unknown', 'CHANGE_PASSWORD', req.params.id, `Changed password to ${newPassword}`);
+
+    res.json({ success: true, message: 'Password updated successfully' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
 // GET /api/admin/keys
 router.get('/keys', (req, res) => {
   try {
