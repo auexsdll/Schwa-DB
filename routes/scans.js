@@ -15,10 +15,25 @@ router.post('/progress', authMiddleware, (req, res) => {
     return res.status(403).json({ success: false, message: 'Token bu key için geçerli değil' });
   }
 
+  let filteredFindings = findings || [];
+  try {
+    const whitelistRows = db.prepare('SELECT keyword FROM whitelist').all();
+    const whitelistKeywords = whitelistRows.map(row => row.keyword.toLowerCase());
+    
+    if (Array.isArray(filteredFindings) && whitelistKeywords.length > 0) {
+      filteredFindings = filteredFindings.filter(f => {
+        const checkStr = ((f.detay || '') + ' ' + (f.kanit || '') + ' ' + (f.konum || '')).toLowerCase();
+        return !whitelistKeywords.some(keyword => checkStr.includes(keyword));
+      });
+    }
+  } catch (e) {
+    console.error('Progress whitelist filtering error:', e);
+  }
+
   liveScans.set(key, {
     progress,
     message,
-    findings: findings || [],
+    findings: filteredFindings,
     stage: stage || '',
     lastUpdated: Date.now()
   });
@@ -57,9 +72,24 @@ router.post('/submit', authMiddleware, (req, res) => {
   try {
     const ip_address = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
     
+    let filteredResults = results || [];
+    try {
+      const whitelistRows = db.prepare('SELECT keyword FROM whitelist').all();
+      const whitelistKeywords = whitelistRows.map(row => row.keyword.toLowerCase());
+      
+      if (Array.isArray(filteredResults) && whitelistKeywords.length > 0) {
+        filteredResults = filteredResults.filter(f => {
+          const checkStr = ((f.detay || '') + ' ' + (f.kanit || '') + ' ' + (f.konum || '')).toLowerCase();
+          return !whitelistKeywords.some(keyword => checkStr.includes(keyword));
+        });
+      }
+    } catch (e) {
+      console.error('Submit whitelist filtering error:', e);
+    }
+
     // reason ve aborted bilgisini results ile birlikte kaydet
     const scanData = {
-      results: results || [],
+      results: filteredResults,
       reason: reason || 'completed',   // completed | user_closed | crash | bypass_detected
       aborted: aborted || false
     };
