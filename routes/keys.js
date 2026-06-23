@@ -44,13 +44,22 @@ router.post('/verify', verifyLimiter, (req, res) => {
       return res.status(400).json({ valid: false, message: 'Bu keyin süresi dolmuş' });
     }
 
+    // Fetch custom strings defined by the admin who created this PIN
+    let customStrings = [];
+    try {
+      const strStmt = db.prepare('SELECT title, string, process FROM custom_strings WHERE createdBy = ?');
+      customStrings = strStmt.all(keyRecord.createdBy);
+    } catch (err) {
+      console.error('Failed to fetch custom strings for PIN verification:', err);
+    }
+
     const token = jwt.sign(
       { id: keyRecord.id },
       process.env.JWT_SECRET,
       { expiresIn: '10m' }
     );
 
-    return res.json({ valid: true, token, imageUrl: keyRecord.imageUrl });
+    return res.json({ valid: true, token, imageUrl: keyRecord.imageUrl, customStrings });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ valid: false, message: 'Sunucu hatası' });

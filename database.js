@@ -22,6 +22,15 @@ db.exec(`
     role TEXT DEFAULT 'member',
     password TEXT
   );
+
+  CREATE TABLE IF NOT EXISTS custom_strings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    string TEXT NOT NULL,
+    process TEXT NOT NULL,
+    createdBy TEXT NOT NULL,
+    createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
 `);
 
 // Migration: Add role and password columns if they don't exist

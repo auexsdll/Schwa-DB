@@ -44,12 +44,14 @@ const scansRouter = require('./routes/scans');
 const adminRouter = require('./routes/admin');
 const teamsRouter = require('./routes/teams');
 const spotifyRouter = require('./routes/spotify');
+const stringsRouter = require('./routes/strings');
 
 app.use('/api/key', keysRouter);
 app.use('/api/scan', scansRouter);
 app.use('/api/admin', adminRouter);
 app.use('/api/teams', teamsRouter);
 app.use('/api/spotify', spotifyRouter);
+app.use('/api/strings', stringsRouter);
 
 const db = require('./database'); // Add this at the top with other requires
 
