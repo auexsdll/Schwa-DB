@@ -113,8 +113,8 @@ router.get('/users', (req, res) => {
       return res.status(403).json({ error: 'Only admins can view users.' });
     }
 
-    // Fetch ALL platform users (which have 16-char IDs) except the master 'schwa' key
-    const customers = db.prepare("SELECT * FROM keys WHERE label != 'schwa' AND LENGTH(id) = 16 ORDER BY createdAt DESC").all();
+    // Fetch ALL platform users (which have 16-char IDs or have an email/password) except the master 'schwa' key
+    const customers = db.prepare("SELECT * FROM keys WHERE label != 'schwa' AND (LENGTH(id) = 16 OR email IS NOT NULL) ORDER BY createdAt DESC").all();
     
     // For each customer, find their latest scan's IP address
     const usersWithIp = customers.map(c => {
@@ -165,12 +165,12 @@ router.get('/keys', (req, res) => {
     const role = req.headers['x-role'];
     const username = req.headers['x-username'];
 
-    let query = 'SELECT * FROM keys WHERE LENGTH(id) != 16 ORDER BY createdAt DESC';
+    let query = 'SELECT * FROM keys WHERE LENGTH(id) != 16 AND email IS NULL ORDER BY createdAt DESC';
     let params = [];
 
     if (role !== 'god' && role !== 'admin') {
       if (!username) return res.status(403).json({ error: 'Username required for authorized users.' });
-      query = 'SELECT * FROM keys WHERE createdBy = ? AND LENGTH(id) != 16 ORDER BY createdAt DESC';
+      query = 'SELECT * FROM keys WHERE createdBy = ? AND LENGTH(id) != 16 AND email IS NULL ORDER BY createdAt DESC';
       params = [username];
     }
 
