@@ -9,8 +9,8 @@ const authenticate = (req, res, next) => {
     return res.status(401).json({ success: false, message: 'Unauthorized' });
   }
   
-  // Verify user exists
-  const stmt = db.prepare("SELECT * FROM keys WHERE id = ?");
+  // Verify user exists by their username (label)
+  const stmt = db.prepare("SELECT * FROM keys WHERE label = ? COLLATE NOCASE");
   const user = stmt.get(userId);
   if (!user) {
     return res.status(401).json({ success: false, message: 'Invalid user' });
