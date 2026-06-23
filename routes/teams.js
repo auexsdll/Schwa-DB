@@ -86,10 +86,14 @@ router.get('/my-team', (req, res) => {
     // Get active referrals
     const referrals = db.prepare('SELECT code, created_at, is_used, used_by FROM referrals WHERE team_id = ? ORDER BY created_at DESC').all(team.id);
 
+    // Get custom roles
+    const custom_roles = db.prepare('SELECT id, role_name, role_color FROM team_custom_roles WHERE team_id = ? ORDER BY created_at ASC').all(team.id);
+
     res.json({
       team,
       members,
       referrals,
+      custom_roles,
       stats: {
         totalKeys,
         totalScans,
@@ -184,6 +188,112 @@ router.delete('/member', (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// Update team settings (Leader only)
+router.post('/settings', authMiddleware, (req, res) => {
+  const { logo_url, description, color } = req.body;
+  const username = req.user.id; // User must be the leader
+
+  try {
+    const team = db.prepare('SELECT * FROM teams WHERE leader_username = ?').get(username);
+    if (!team) {
+      return res.status(403).json({ success: false, message: 'You are not the leader of any team.' });
+    }
+
+    const stmt = db.prepare(`
+      UPDATE teams 
+      SET logo_url = COALESCE(?, logo_url),
+          description = COALESCE(?, description),
+          color = COALESCE(?, color)
+      WHERE id = ?
+    `);
+    
+    stmt.run(logo_url, description, color, team.id);
+    res.json({ success: true, message: 'Team settings updated' });
+  } catch (error) {
+    console.error('Update team settings error:', error);
+    res.status(500).json({ success: false, message: 'Failed to update team settings' });
+  }
+});
+
+// Delete/Disband team (Leader only)
+router.delete('/disband', authMiddleware, (req, res) => {
+  const username = req.user.id;
+
+  try {
+    const team = db.prepare('SELECT * FROM teams WHERE leader_username = ?').get(username);
+    if (!team) {
+      return res.status(404).json({ success: false, message: 'Team not found or unauthorized' });
+    }
+
+    db.prepare('DELETE FROM team_custom_roles WHERE team_id = ?').run(team.id);
+    db.prepare('DELETE FROM team_members WHERE team_id = ?').run(team.id);
+    db.prepare('DELETE FROM referrals WHERE team_id = ?').run(team.id);
+    db.prepare('DELETE FROM teams WHERE id = ?').run(team.id);
+
+    res.json({ success: true, message: 'Team disbanded successfully' });
+  } catch (error) {
+    console.error('Disband team error:', error);
+    res.status(500).json({ success: false, message: 'Failed to disband team' });
+  }
+});
+
+// Add custom role
+router.post('/roles', authMiddleware, (req, res) => {
+  const { role_name, role_color } = req.body;
+  const username = req.user.id;
+  try {
+    const team = db.prepare('SELECT * FROM teams WHERE leader_username = ?').get(username);
+    if (!team) return res.status(404).json({ success: false, message: 'Team not found or unauthorized' });
+    
+    const count = db.prepare('SELECT COUNT(*) as count FROM team_custom_roles WHERE team_id = ?').get(team.id).count;
+    if (count >= 2) return res.status(400).json({ success: false, message: 'Maximum 2 custom roles allowed' });
+
+    db.prepare('INSERT INTO team_custom_roles (team_id, role_name, role_color) VALUES (?, ?, ?)').run(team.id, role_name, role_color);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+// Delete custom role
+router.delete('/roles/:id', authMiddleware, (req, res) => {
+  const roleId = req.params.id;
+  const username = req.user.id;
+  try {
+    const team = db.prepare('SELECT * FROM teams WHERE leader_username = ?').get(username);
+    if (!team) return res.status(404).json({ success: false, message: 'Unauthorized' });
+    
+    // reset members with this role
+    const role = db.prepare('SELECT role_name FROM team_custom_roles WHERE id = ? AND team_id = ?').get(roleId, team.id);
+    if (role) {
+      db.prepare('UPDATE team_members SET custom_role = NULL WHERE team_id = ? AND custom_role = ?').run(team.id, role.role_name);
+      db.prepare('DELETE FROM team_custom_roles WHERE id = ? AND team_id = ?').run(roleId, team.id);
+    }
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+// Assign role to member
+router.post('/members/role', authMiddleware, (req, res) => {
+  const { target_username, role_type, role_name } = req.body; // role_type: 'admin', 'member', 'custom'
+  const username = req.user.id;
+  try {
+    const team = db.prepare('SELECT * FROM teams WHERE leader_username = ?').get(username);
+    if (!team) return res.status(404).json({ success: false, message: 'Unauthorized' });
+    
+    if (role_type === 'custom') {
+      db.prepare('UPDATE team_members SET custom_role = ? WHERE team_id = ? AND username = ?').run(role_name, team.id, target_username);
+    } else {
+      db.prepare('UPDATE team_members SET team_role = ?, custom_role = NULL WHERE team_id = ? AND username = ?').run(role_type, team.id, target_username);
+    }
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Server error' });
   }
 });
 

@@ -107,7 +107,7 @@ router.post('/activate', authMiddleware, (req, res) => {
 });
 // Update Profile
 router.post('/update-profile', async (req, res) => {
-  const { key, email, discord_id } = req.body;
+  const { key, email, discord_id, avatar_url, banner_url, bio, profile_color } = req.body;
   if (!key) return res.status(400).json({ success: false, message: 'Key required' });
 
   try {
@@ -144,7 +144,20 @@ router.post('/update-profile', async (req, res) => {
       }
     }
 
-    db.prepare('UPDATE keys SET email = ?, discord_id = ?, imageUrl = ? WHERE id = ?').run(email || user.email, discord_id || user.discord_id, imageUrl, key);
+    db.prepare(`
+      UPDATE keys 
+      SET email = ?, discord_id = ?, imageUrl = ?, avatar_url = ?, banner_url = ?, bio = ?, profile_color = ? 
+      WHERE id = ?
+    `).run(
+      email || user.email, 
+      discord_id || user.discord_id, 
+      imageUrl, 
+      avatar_url || user.avatar_url, 
+      banner_url || user.banner_url, 
+      bio || user.bio, 
+      profile_color || user.profile_color, 
+      key
+    );
     
     // Also update team_members table
     db.prepare('UPDATE team_members SET email = ?, discord_id = ? WHERE username = ? COLLATE NOCASE').run(email || user.email, discord_id || user.discord_id, user.label);
@@ -160,17 +173,65 @@ router.post('/update-profile', async (req, res) => {
 router.get('/profile', async (req, res) => {
   const key = req.headers['x-api-key'] || req.query.key;
   if (!key) return res.status(401).json({ success: false, message: 'Unauthorized' });
-  let user = db.prepare('SELECT email, discord_id, imageUrl FROM keys WHERE id = ?').get(key);
+  let user = db.prepare('SELECT email, discord_id, imageUrl, avatar_url, banner_url, bio, profile_color FROM keys WHERE id = ?').get(key);
   
   if (!user && key === 'master-key') {
-    db.prepare(`
-      INSERT INTO keys (id, game, label, createdBy, createdAt, expiresAt, active, maxUses, currentUses, role)
-      VALUES ('master-key', 'all', 'schwa', 'system', datetime('now'), '2099-12-31T23:59:59.000Z', 1, 999999, 0, 'god')
-    `).run();
-    user = db.prepare('SELECT email, discord_id, imageUrl FROM keys WHERE id = ?').get(key);
+    user = { email: '', discord_id: '', imageUrl: null, avatar_url: null, banner_url: null, bio: null, profile_color: '#10b981' };
   }
 
+  if (!user) return res.status(404).json({ success: false, message: 'User not found' });
   res.json({ success: true, profile: user });
+});
+
+// Update user profile
+router.post('/profile', authMiddleware, (req, res) => {
+  const { avatar_url, banner_url, bio, profile_color } = req.body;
+  const userId = req.user.id;
+
+  try {
+    const stmt = db.prepare(`
+      UPDATE keys 
+      SET avatar_url = COALESCE(?, avatar_url),
+          banner_url = COALESCE(?, banner_url),
+          bio = COALESCE(?, bio),
+          profile_color = COALESCE(?, profile_color)
+      WHERE id = ?
+    `);
+    
+    stmt.run(avatar_url, banner_url, bio, profile_color, userId);
+    res.json({ success: true, message: 'Profile updated successfully' });
+  } catch (error) {
+    console.error('Profile update error:', error);
+    res.status(500).json({ success: false, message: 'Failed to update profile' });
+  }
+});
+
+// Get user profile
+router.get('/profile/:id', (req, res) => {
+  try {
+    const stmt = db.prepare(`
+      SELECT id, game, label, createdBy, createdAt, discord_id, email, role, avatar_url, banner_url, bio, profile_color
+      FROM keys WHERE id = ?
+    `);
+    const user = stmt.get(req.params.id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+    
+    // Also fetch team info
+    const teamStmt = db.prepare(`
+      SELECT tm.role as team_role, tm.custom_role, t.name, t.logo_url, t.description, t.color
+      FROM team_members tm
+      JOIN teams t ON tm.team_id = t.id
+      WHERE tm.username = ?
+    `);
+    const team = teamStmt.get(user.id);
+    
+    res.json({ success: true, user: { ...user, team: team || null } });
+  } catch (error) {
+    console.error('Fetch profile error:', error);
+    res.status(500).json({ success: false, message: 'Failed to fetch profile' });
+  }
 });
 
 module.exports = router;

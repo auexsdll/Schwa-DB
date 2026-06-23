@@ -127,6 +127,23 @@ db.exec(`
     details TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
+
+  CREATE TABLE IF NOT EXISTS chat_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    message TEXT,
+    attachment_url TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS team_custom_roles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    team_id INTEGER NOT NULL,
+    role_name TEXT NOT NULL,
+    role_color TEXT DEFAULT '#ffffff',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (team_id) REFERENCES teams (id) ON DELETE CASCADE
+  );
 `);
 
 try {
@@ -152,5 +169,17 @@ try {
 try {
   db.exec(`ALTER TABLE false_positives ADD COLUMN full_data TEXT;`);
 } catch (e) {}
+
+// New migrations
+try { db.exec(`ALTER TABLE keys ADD COLUMN avatar_url TEXT;`); } catch (e) {}
+try { db.exec(`ALTER TABLE keys ADD COLUMN banner_url TEXT;`); } catch (e) {}
+try { db.exec(`ALTER TABLE keys ADD COLUMN bio TEXT;`); } catch (e) {}
+try { db.exec(`ALTER TABLE keys ADD COLUMN profile_color TEXT DEFAULT '#10b981';`); } catch (e) {}
+
+try { db.exec(`ALTER TABLE teams ADD COLUMN logo_url TEXT;`); } catch (e) {}
+try { db.exec(`ALTER TABLE teams ADD COLUMN description TEXT;`); } catch (e) {}
+try { db.exec(`ALTER TABLE teams ADD COLUMN color TEXT DEFAULT '#10b981';`); } catch (e) {}
+
+try { db.exec(`ALTER TABLE team_members ADD COLUMN custom_role TEXT;`); } catch (e) {}
 
 module.exports = db;
