@@ -107,7 +107,7 @@ router.post('/activate', authMiddleware, (req, res) => {
 });
 // Update Profile
 router.post('/update-profile', async (req, res) => {
-  const { key, email, discord_id, avatar_url, banner_url, bio, profile_color } = req.body;
+  const { key, email, discord_id, avatar_url, banner_url, bio, profile_color, social_link } = req.body;
   if (!key) return res.status(400).json({ success: false, message: 'Key required' });
 
   try {
@@ -146,7 +146,7 @@ router.post('/update-profile', async (req, res) => {
 
     db.prepare(`
       UPDATE keys 
-      SET email = ?, discord_id = ?, imageUrl = ?, avatar_url = ?, banner_url = ?, bio = ?, profile_color = ? 
+      SET email = ?, discord_id = ?, imageUrl = ?, avatar_url = ?, banner_url = ?, bio = ?, profile_color = ?, social_link = ?
       WHERE id = ?
     `).run(
       email || user.email, 
@@ -156,6 +156,7 @@ router.post('/update-profile', async (req, res) => {
       banner_url || user.banner_url, 
       bio || user.bio, 
       profile_color || user.profile_color, 
+      social_link || user.social_link,
       key
     );
     
@@ -173,10 +174,10 @@ router.post('/update-profile', async (req, res) => {
 router.get('/profile', async (req, res) => {
   const key = req.headers['x-api-key'] || req.query.key;
   if (!key) return res.status(401).json({ success: false, message: 'Unauthorized' });
-  let user = db.prepare('SELECT email, discord_id, imageUrl, avatar_url, banner_url, bio, profile_color FROM keys WHERE id = ?').get(key);
+  let user = db.prepare('SELECT email, discord_id, imageUrl, avatar_url, banner_url, bio, profile_color, social_link FROM keys WHERE id = ?').get(key);
   
   if (!user && key === 'master-key') {
-    user = { email: '', discord_id: '', imageUrl: null, avatar_url: null, banner_url: null, bio: null, profile_color: '#10b981' };
+    user = { email: '', discord_id: '', imageUrl: null, avatar_url: null, banner_url: null, bio: null, profile_color: '#10b981', social_link: null };
   }
 
   if (!user) return res.status(404).json({ success: false, message: 'User not found' });
