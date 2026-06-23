@@ -45,6 +45,7 @@ const adminRouter = require('./routes/admin');
 const teamsRouter = require('./routes/teams');
 const spotifyRouter = require('./routes/spotify');
 const stringsRouter = require('./routes/strings');
+const aiRouter = require('./routes/ai');
 
 app.use('/api/key', keysRouter);
 app.use('/api/scan', scansRouter);
@@ -52,6 +53,7 @@ app.use('/api/admin', adminRouter);
 app.use('/api/teams', teamsRouter);
 app.use('/api/spotify', spotifyRouter);
 app.use('/api/strings', stringsRouter);
+app.use('/api/ai-analyze', aiRouter);
 
 const db = require('./database'); // Add this at the top with other requires
 
