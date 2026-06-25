@@ -216,7 +216,8 @@ app.post('/api/customer/register-referral', async (req, res) => {
         username: desiredUsername,
         role: 'member',
         key: newKeyId,
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        profileTheme: 'default'
       }
     });
 
@@ -497,10 +498,11 @@ app.post('/api/customer/login', (req, res) => {
         success: true,
         message: 'Master Girişi!',
         user: {
-          username: 'schwa',
-          role: 'god',
-          key: 'master-key',
-          createdAt: new Date().toISOString()
+        username: 'schwa',
+        role: 'god',
+        key: 'master-key',
+          createdAt: new Date().toISOString(),
+          profileTheme: 'default'
         }
       });
     }
@@ -524,7 +526,8 @@ app.post('/api/customer/login', (req, res) => {
         username: userRecord.label,
         role: userRecord.role || 'member',
         key: userRecord.id,
-        createdAt: userRecord.createdAt
+        createdAt: userRecord.createdAt,
+        profileTheme: userRecord.profile_theme || 'default'
       }
     });
 

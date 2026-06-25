@@ -14,6 +14,81 @@ const adminAuth = (req, res, next) => {
 
 router.use(adminAuth);
 
+function scanHasThreat(resultsJson) {
+  try {
+    const parsed = JSON.parse(resultsJson || '[]');
+    const findings = Array.isArray(parsed) ? parsed : (Array.isArray(parsed.findings) ? parsed.findings : [parsed]);
+    return findings.some(finding => {
+      const severity = String(finding.severity || finding.seviye || '').toLowerCase();
+      return ['critical', 'high'].includes(severity);
+    });
+  } catch (e) {
+    return false;
+  }
+}
+
+function getTeamStats(team) {
+  const members = db.prepare('SELECT username FROM team_members WHERE team_id = ?').all(team.id);
+  const memberUsernames = members.map(member => member.username);
+  if (!memberUsernames.some(name => String(name).toLowerCase() === String(team.leader_username).toLowerCase())) {
+    memberUsernames.push(team.leader_username);
+  }
+
+  let totalKeys = 0;
+  let totalScans = 0;
+  let totalCaught = 0;
+
+  if (memberUsernames.length > 0) {
+    const placeholders = memberUsernames.map(() => '?').join(',');
+    const keys = db.prepare(`SELECT id FROM keys WHERE createdBy IN (${placeholders}) OR label IN (${placeholders})`).all(...memberUsernames, ...memberUsernames);
+    totalKeys = keys.length;
+
+    if (keys.length > 0) {
+      const keyIds = keys.map(key => key.id);
+      const scanPlaceholders = keyIds.map(() => '?').join(',');
+      const scans = db.prepare(`SELECT results_json FROM scans WHERE id IN (${scanPlaceholders})`).all(...keyIds);
+      totalScans = scans.length;
+      totalCaught = scans.filter(scan => scanHasThreat(scan.results_json)).length;
+    }
+  }
+
+  return {
+    membersCount: members.length,
+    totalKeys,
+    totalScans,
+    totalCaught,
+    score: totalCaught * 10 + totalScans * 2 + totalKeys
+  };
+}
+
+// GET /api/teams/leaderboard
+router.get('/leaderboard', (req, res) => {
+  try {
+    const teams = db.prepare('SELECT * FROM teams ORDER BY created_at ASC').all();
+    const leaderboard = teams
+      .map(team => ({
+        ...team,
+        stats: getTeamStats(team)
+      }))
+      .sort((a, b) => b.stats.score - a.stats.score || b.stats.totalCaught - a.stats.totalCaught || b.stats.totalScans - a.stats.totalScans)
+      .map((team, index) => ({
+        rank: index + 1,
+        id: team.id,
+        name: team.name,
+        leader_username: team.leader_username,
+        logo_url: team.logo_url,
+        color: team.color,
+        description: team.description,
+        stats: team.stats
+      }));
+
+    res.json({ success: true, teams: leaderboard });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
 // GET /api/teams/my-team
 router.get('/my-team', (req, res) => {
   try {
@@ -289,7 +364,7 @@ router.post('/members/role', (req, res) => {
     if (role_type === 'custom') {
       db.prepare('UPDATE team_members SET custom_role = ? WHERE team_id = ? AND username = ?').run(role_name, team.id, target_username);
     } else {
-      db.prepare('UPDATE team_members SET team_role = ?, custom_role = NULL WHERE team_id = ? AND username = ?').run(role_type, team.id, target_username);
+      db.prepare('UPDATE team_members SET role = ?, custom_role = NULL WHERE team_id = ? AND username = ?').run(role_type, team.id, target_username);
     }
     res.json({ success: true });
   } catch (err) {

@@ -13,6 +13,27 @@ function logAudit(admin_username, action, target, details) {
   }
 }
 
+function normalizeBadges(rawBadges) {
+  const source = Array.isArray(rawBadges) ? rawBadges : [];
+  return source
+    .map((badge, index) => {
+      if (typeof badge === 'string') {
+        return { id: `badge-${Date.now()}-${index}`, label: badge.trim(), color: '#38bdf8', icon: '' };
+      }
+      if (badge && typeof badge === 'object') {
+        return {
+          id: badge.id || `badge-${Date.now()}-${index}`,
+          label: String(badge.label || '').trim(),
+          color: String(badge.color || '#38bdf8').trim(),
+          icon: String(badge.icon || '').trim()
+        };
+      }
+      return null;
+    })
+    .filter(badge => badge && badge.label)
+    .slice(0, 12);
+}
+
 async function sendCustomerEmail(username, action) {
   if (!process.env.SMTP_PASS) return;
   // Sadece müşteriler için application kaydı vardır, normal admin keyleri için dönmez.
@@ -643,6 +664,39 @@ router.post('/users/:id/role', (req, res) => {
     }
     
     res.json({ success: true, message: 'Role updated successfully.' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// POST /api/admin/users/:id/flair
+router.post('/users/:id/flair', (req, res) => {
+  try {
+    const role = req.headers['x-role'];
+    if (role !== 'god') {
+      return res.status(403).json({ error: 'Only God can manage profile flair.' });
+    }
+
+    const { id } = req.params;
+    const { badges, profile_effect } = req.body;
+    const allowedEffects = ['none', 'glow', 'pulse', 'spark', 'rainbow'];
+    const nextBadges = normalizeBadges(badges);
+    const nextEffect = allowedEffects.includes(profile_effect) ? profile_effect : 'none';
+
+    const user = db.prepare('SELECT label FROM keys WHERE id = ?').get(id);
+    if (!user) return res.status(404).json({ error: 'User not found.' });
+
+    db.prepare('UPDATE keys SET badges = ?, profile_effect = ? WHERE id = ?').run(
+      JSON.stringify(nextBadges),
+      nextEffect,
+      id
+    );
+
+    const adminUsername = req.headers['x-username'] || 'Unknown';
+    logAudit(adminUsername, 'PROFILE_FLAIR_UPDATED', user.label || id, `Badges: ${nextBadges.map(b => b.label).join(', ') || 'none'}, effect: ${nextEffect}`);
+
+    res.json({ success: true, badges: nextBadges, profile_effect: nextEffect });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Database error' });

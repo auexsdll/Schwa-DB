@@ -5,6 +5,57 @@ const db = require('../database');
 const rateLimit = require('express-rate-limit');
 const authMiddleware = require('../middleware/auth');
 
+function safeJsonParse(value, fallback) {
+  if (!value) return fallback;
+  if (Array.isArray(value)) return value;
+  try {
+    return JSON.parse(value);
+  } catch (e) {
+    return fallback;
+  }
+}
+
+function normalizeSocialLinks(rawLinks, legacyLink) {
+  let links = rawLinks;
+  if (typeof rawLinks === 'string') {
+    links = safeJsonParse(rawLinks, rawLinks ? [{ url: rawLinks }] : []);
+  }
+  if (!Array.isArray(links)) links = [];
+
+  const normalized = links
+    .map((item, index) => {
+      if (typeof item === 'string') return { id: `link-${index}`, url: item.trim(), label: '' };
+      if (item && typeof item === 'object') {
+        return {
+          id: item.id || `link-${index}`,
+          url: String(item.url || '').trim(),
+          label: String(item.label || '').trim()
+        };
+      }
+      return null;
+    })
+    .filter(item => item && item.url)
+    .slice(0, 8);
+
+  if (normalized.length === 0 && legacyLink) {
+    return [{ id: 'legacy-link', url: String(legacyLink).trim(), label: '' }];
+  }
+
+  return normalized;
+}
+
+function formatProfileRow(user) {
+  const socialLinks = normalizeSocialLinks(user.social_links, user.social_link);
+  const badges = safeJsonParse(user.badges, []);
+  return {
+    ...user,
+    social_links: socialLinks,
+    badges: Array.isArray(badges) ? badges : [],
+    profile_effect: user.profile_effect || 'none',
+    profile_theme: user.profile_theme || 'default'
+  };
+}
+
 const verifyLimiter = rateLimit({
   windowMs: 1 * 60 * 1000,
   max: 10,
@@ -107,7 +158,7 @@ router.post('/activate', authMiddleware, (req, res) => {
 });
 // Update Profile
 router.post('/update-profile', async (req, res) => {
-  const { key, email, discord_id, avatar_url, banner_url, bio, profile_color, social_link } = req.body;
+  const { key, email, discord_id, avatar_url, banner_url, bio, profile_color, social_link, social_links, profile_effect, profile_theme } = req.body;
   if (!key) return res.status(400).json({ success: false, message: 'Key required' });
 
   try {
@@ -144,26 +195,38 @@ router.post('/update-profile', async (req, res) => {
       }
     }
 
+    const normalizedLinks = social_links === undefined && social_link === undefined
+      ? normalizeSocialLinks(user?.social_links, user?.social_link)
+      : normalizeSocialLinks(social_links, social_link);
+    const primarySocialLink = normalizedLinks[0]?.url || '';
+    const allowedEffects = ['none', 'glow', 'pulse', 'spark', 'rainbow'];
+    const allowedThemes = ['default', 'emerald', 'crimson', 'violet', 'gold'];
+    const nextEffect = allowedEffects.includes(profile_effect) ? profile_effect : (user.profile_effect || 'none');
+    const nextTheme = allowedThemes.includes(profile_theme) ? profile_theme : (user.profile_theme || 'default');
+
     db.prepare(`
       UPDATE keys 
-      SET email = ?, discord_id = ?, imageUrl = ?, avatar_url = ?, banner_url = ?, bio = ?, profile_color = ?, social_link = ?
+      SET email = ?, discord_id = ?, imageUrl = ?, avatar_url = ?, banner_url = ?, bio = ?, profile_color = ?, social_link = ?, social_links = ?, profile_effect = ?, profile_theme = ?
       WHERE id = ?
     `).run(
-      email || user.email, 
-      discord_id || user.discord_id, 
+      email ?? user.email,
+      discord_id ?? user.discord_id,
       imageUrl, 
-      avatar_url || user.avatar_url, 
-      banner_url || user.banner_url, 
-      bio || user.bio, 
-      profile_color || user.profile_color, 
-      social_link || user.social_link,
+      avatar_url ?? user.avatar_url,
+      banner_url ?? user.banner_url,
+      bio ?? user.bio,
+      profile_color ?? user.profile_color,
+      primarySocialLink,
+      JSON.stringify(normalizedLinks),
+      nextEffect,
+      nextTheme,
       key
     );
     
     // Also update team_members table
-    db.prepare('UPDATE team_members SET email = ?, discord_id = ? WHERE username = ? COLLATE NOCASE').run(email || user.email, discord_id || user.discord_id, user.label);
+    db.prepare('UPDATE team_members SET email = ?, discord_id = ? WHERE username = ? COLLATE NOCASE').run(email ?? user.email, discord_id ?? user.discord_id, user.label);
 
-    res.json({ success: true, message: 'Profile updated successfully', imageUrl });
+    res.json({ success: true, message: 'Profile updated successfully', imageUrl, social_links: normalizedLinks, profile_effect: nextEffect, profile_theme: nextTheme });
   } catch (error) {
     console.error('Update profile error:', error);
     res.status(500).json({ success: false, message: 'Server error' });
@@ -174,33 +237,46 @@ router.post('/update-profile', async (req, res) => {
 router.get('/profile', async (req, res) => {
   const key = req.headers['x-api-key'] || req.query.key;
   if (!key) return res.status(401).json({ success: false, message: 'Unauthorized' });
-  let user = db.prepare('SELECT email, discord_id, imageUrl, avatar_url, banner_url, bio, profile_color, social_link FROM keys WHERE id = ?').get(key);
+  let user = db.prepare('SELECT email, discord_id, imageUrl, avatar_url, banner_url, bio, profile_color, social_link, social_links, badges, profile_effect, profile_theme FROM keys WHERE id = ?').get(key);
   
   if (!user && key === 'master-key') {
-    user = { email: '', discord_id: '', imageUrl: null, avatar_url: null, banner_url: null, bio: null, profile_color: '#10b981', social_link: null };
+    user = { email: '', discord_id: '', imageUrl: null, avatar_url: null, banner_url: null, bio: null, profile_color: '#10b981', social_link: null, social_links: [], badges: [], profile_effect: 'none', profile_theme: 'default' };
   }
 
   if (!user) return res.status(404).json({ success: false, message: 'User not found' });
-  res.json({ success: true, profile: user });
+  res.json({ success: true, profile: formatProfileRow(user) });
 });
 
 // Update user profile
 router.post('/profile', authMiddleware, (req, res) => {
-  const { avatar_url, banner_url, bio, profile_color, social_link } = req.body;
+  const { avatar_url, banner_url, bio, profile_color, social_link, social_links, profile_effect, profile_theme } = req.body;
   const userId = req.user.id;
 
   try {
+    const user = db.prepare('SELECT social_link, social_links, profile_effect, profile_theme FROM keys WHERE id = ?').get(userId);
+    const normalizedLinks = social_links === undefined && social_link === undefined
+      ? normalizeSocialLinks(user?.social_links, user?.social_link)
+      : normalizeSocialLinks(social_links, social_link);
+    const primarySocialLink = normalizedLinks[0]?.url || '';
+    const allowedEffects = ['none', 'glow', 'pulse', 'spark', 'rainbow'];
+    const allowedThemes = ['default', 'emerald', 'crimson', 'violet', 'gold'];
+    const nextEffect = allowedEffects.includes(profile_effect) ? profile_effect : (user?.profile_effect || 'none');
+    const nextTheme = allowedThemes.includes(profile_theme) ? profile_theme : (user?.profile_theme || 'default');
+
     const stmt = db.prepare(`
       UPDATE keys 
       SET avatar_url = COALESCE(?, avatar_url),
           banner_url = COALESCE(?, banner_url),
           bio = COALESCE(?, bio),
           profile_color = COALESCE(?, profile_color),
-          social_link = COALESCE(?, social_link)
+          social_link = ?,
+          social_links = ?,
+          profile_effect = ?,
+          profile_theme = ?
       WHERE id = ?
     `);
     
-    stmt.run(avatar_url, banner_url, bio, profile_color, social_link, userId);
+    stmt.run(avatar_url, banner_url, bio, profile_color, primarySocialLink, JSON.stringify(normalizedLinks), nextEffect, nextTheme, userId);
     res.json({ success: true, message: 'Profile updated successfully' });
   } catch (error) {
     console.error('Profile update error:', error);
@@ -212,7 +288,7 @@ router.post('/profile', authMiddleware, (req, res) => {
 router.get('/profile/:id', (req, res) => {
   try {
     const stmt = db.prepare(`
-      SELECT id, game, label, createdBy, createdAt, discord_id, email, role, avatar_url, banner_url, bio, profile_color, social_link, active
+      SELECT id, game, label, createdBy, createdAt, discord_id, email, role, avatar_url, banner_url, bio, profile_color, social_link, social_links, badges, profile_effect, profile_theme, active
       FROM keys WHERE label = ? COLLATE NOCASE
     `);
     const user = stmt.get(req.params.id);
@@ -229,7 +305,7 @@ router.get('/profile/:id', (req, res) => {
     `);
     const team = teamStmt.get(user.label);
     
-    res.json({ success: true, user: { ...user, team: team || null } });
+    res.json({ success: true, user: { ...formatProfileRow(user), team: team || null } });
   } catch (error) {
     console.error('Fetch profile error:', error);
     res.status(500).json({ success: false, message: 'Failed to fetch profile' });
