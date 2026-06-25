@@ -680,7 +680,7 @@ router.post('/users/:id/flair', (req, res) => {
 
     const { id } = req.params;
     const { badges, profile_effect } = req.body;
-    const allowedEffects = ['none', 'glow', 'pulse', 'spark', 'rainbow'];
+    const allowedEffects = ['none', 'glow', 'pulse', 'spark', 'rainbow', 'inferno', 'frost', 'hologram', 'nebula', 'prism', 'cyber', 'royal', 'vortex'];
     const nextBadges = normalizeBadges(badges);
     const nextEffect = allowedEffects.includes(profile_effect) ? profile_effect : 'none';
 

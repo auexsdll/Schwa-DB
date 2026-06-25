@@ -52,7 +52,8 @@ function formatProfileRow(user) {
     social_links: socialLinks,
     badges: Array.isArray(badges) ? badges : [],
     profile_effect: user.profile_effect || 'none',
-    profile_theme: user.profile_theme || 'default'
+    profile_theme: user.profile_theme || 'default',
+    profile_overlay_url: user.profile_overlay_url || ''
   };
 }
 
@@ -158,7 +159,7 @@ router.post('/activate', authMiddleware, (req, res) => {
 });
 // Update Profile
 router.post('/update-profile', async (req, res) => {
-  const { key, email, discord_id, avatar_url, banner_url, bio, profile_color, social_link, social_links, profile_effect, profile_theme } = req.body;
+  const { key, email, discord_id, avatar_url, banner_url, bio, profile_color, social_link, social_links, profile_effect, profile_theme, profile_overlay_url } = req.body;
   if (!key) return res.status(400).json({ success: false, message: 'Key required' });
 
   try {
@@ -199,14 +200,14 @@ router.post('/update-profile', async (req, res) => {
       ? normalizeSocialLinks(user?.social_links, user?.social_link)
       : normalizeSocialLinks(social_links, social_link);
     const primarySocialLink = normalizedLinks[0]?.url || '';
-    const allowedEffects = ['none', 'glow', 'pulse', 'spark', 'rainbow'];
+    const allowedEffects = ['none', 'glow', 'pulse', 'spark', 'rainbow', 'inferno', 'frost', 'hologram', 'nebula', 'prism', 'cyber', 'royal', 'vortex'];
     const allowedThemes = ['default', 'emerald', 'crimson', 'violet', 'gold'];
     const nextEffect = allowedEffects.includes(profile_effect) ? profile_effect : (user.profile_effect || 'none');
     const nextTheme = allowedThemes.includes(profile_theme) ? profile_theme : (user.profile_theme || 'default');
 
     db.prepare(`
       UPDATE keys 
-      SET email = ?, discord_id = ?, imageUrl = ?, avatar_url = ?, banner_url = ?, bio = ?, profile_color = ?, social_link = ?, social_links = ?, profile_effect = ?, profile_theme = ?
+      SET email = ?, discord_id = ?, imageUrl = ?, avatar_url = ?, banner_url = ?, bio = ?, profile_color = ?, social_link = ?, social_links = ?, profile_effect = ?, profile_theme = ?, profile_overlay_url = ?
       WHERE id = ?
     `).run(
       email ?? user.email,
@@ -220,6 +221,7 @@ router.post('/update-profile', async (req, res) => {
       JSON.stringify(normalizedLinks),
       nextEffect,
       nextTheme,
+      profile_overlay_url ?? user.profile_overlay_url,
       key
     );
     
@@ -237,10 +239,10 @@ router.post('/update-profile', async (req, res) => {
 router.get('/profile', async (req, res) => {
   const key = req.headers['x-api-key'] || req.query.key;
   if (!key) return res.status(401).json({ success: false, message: 'Unauthorized' });
-  let user = db.prepare('SELECT email, discord_id, imageUrl, avatar_url, banner_url, bio, profile_color, social_link, social_links, badges, profile_effect, profile_theme FROM keys WHERE id = ?').get(key);
+  let user = db.prepare('SELECT email, discord_id, imageUrl, avatar_url, banner_url, bio, profile_color, social_link, social_links, badges, profile_effect, profile_theme, profile_overlay_url FROM keys WHERE id = ?').get(key);
   
   if (!user && key === 'master-key') {
-    user = { email: '', discord_id: '', imageUrl: null, avatar_url: null, banner_url: null, bio: null, profile_color: '#10b981', social_link: null, social_links: [], badges: [], profile_effect: 'none', profile_theme: 'default' };
+    user = { email: '', discord_id: '', imageUrl: null, avatar_url: null, banner_url: null, bio: null, profile_color: '#10b981', social_link: null, social_links: [], badges: [], profile_effect: 'none', profile_theme: 'default', profile_overlay_url: '' };
   }
 
   if (!user) return res.status(404).json({ success: false, message: 'User not found' });
@@ -249,16 +251,16 @@ router.get('/profile', async (req, res) => {
 
 // Update user profile
 router.post('/profile', authMiddleware, (req, res) => {
-  const { avatar_url, banner_url, bio, profile_color, social_link, social_links, profile_effect, profile_theme } = req.body;
+  const { avatar_url, banner_url, bio, profile_color, social_link, social_links, profile_effect, profile_theme, profile_overlay_url } = req.body;
   const userId = req.user.id;
 
   try {
-    const user = db.prepare('SELECT social_link, social_links, profile_effect, profile_theme FROM keys WHERE id = ?').get(userId);
+    const user = db.prepare('SELECT social_link, social_links, profile_effect, profile_theme, profile_overlay_url FROM keys WHERE id = ?').get(userId);
     const normalizedLinks = social_links === undefined && social_link === undefined
       ? normalizeSocialLinks(user?.social_links, user?.social_link)
       : normalizeSocialLinks(social_links, social_link);
     const primarySocialLink = normalizedLinks[0]?.url || '';
-    const allowedEffects = ['none', 'glow', 'pulse', 'spark', 'rainbow'];
+    const allowedEffects = ['none', 'glow', 'pulse', 'spark', 'rainbow', 'inferno', 'frost', 'hologram', 'nebula', 'prism', 'cyber', 'royal', 'vortex'];
     const allowedThemes = ['default', 'emerald', 'crimson', 'violet', 'gold'];
     const nextEffect = allowedEffects.includes(profile_effect) ? profile_effect : (user?.profile_effect || 'none');
     const nextTheme = allowedThemes.includes(profile_theme) ? profile_theme : (user?.profile_theme || 'default');
@@ -272,11 +274,12 @@ router.post('/profile', authMiddleware, (req, res) => {
           social_link = ?,
           social_links = ?,
           profile_effect = ?,
-          profile_theme = ?
+          profile_theme = ?,
+          profile_overlay_url = COALESCE(?, profile_overlay_url)
       WHERE id = ?
     `);
     
-    stmt.run(avatar_url, banner_url, bio, profile_color, primarySocialLink, JSON.stringify(normalizedLinks), nextEffect, nextTheme, userId);
+    stmt.run(avatar_url, banner_url, bio, profile_color, primarySocialLink, JSON.stringify(normalizedLinks), nextEffect, nextTheme, profile_overlay_url, userId);
     res.json({ success: true, message: 'Profile updated successfully' });
   } catch (error) {
     console.error('Profile update error:', error);
@@ -288,7 +291,7 @@ router.post('/profile', authMiddleware, (req, res) => {
 router.get('/profile/:id', (req, res) => {
   try {
     const stmt = db.prepare(`
-      SELECT id, game, label, createdBy, createdAt, discord_id, email, role, avatar_url, banner_url, bio, profile_color, social_link, social_links, badges, profile_effect, profile_theme, active
+      SELECT id, game, label, createdBy, createdAt, discord_id, email, role, avatar_url, banner_url, bio, profile_color, social_link, social_links, badges, profile_effect, profile_theme, profile_overlay_url, active
       FROM keys WHERE label = ? COLLATE NOCASE
     `);
     const user = stmt.get(req.params.id);

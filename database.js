@@ -25,7 +25,8 @@ db.exec(`
     social_links TEXT DEFAULT '[]',
     badges TEXT DEFAULT '[]',
     profile_effect TEXT DEFAULT 'none',
-    profile_theme TEXT DEFAULT 'default'
+    profile_theme TEXT DEFAULT 'default',
+    profile_overlay_url TEXT
   );
 
   CREATE TABLE IF NOT EXISTS custom_strings (
@@ -59,6 +60,9 @@ try {
 } catch (err) {}
 try {
   db.prepare("ALTER TABLE keys ADD COLUMN profile_theme TEXT DEFAULT 'default'").run();
+} catch (err) {}
+try {
+  db.prepare("ALTER TABLE keys ADD COLUMN profile_overlay_url TEXT").run();
 } catch (err) {}
 
 db.exec(`
