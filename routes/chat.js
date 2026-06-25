@@ -2,6 +2,8 @@ const express = require('express');
 const router = express.Router();
 const db = require('../database');
 
+const MAX_ATTACHMENT_CHARS = 12 * 1024 * 1024;
+
 // Middleware to check authentication (we use user_id from headers/body in simple setups, but let's assume it's passed)
 const authenticate = (req, res, next) => {
   const userId = req.headers['authorization'] || req.headers['x-user-id'] || req.body.user_id || req.query.user_id;
@@ -52,10 +54,22 @@ router.post('/messages', authenticate, (req, res) => {
   if (!message && !attachment_url) {
     return res.status(400).json({ success: false, message: 'Message or attachment is required' });
   }
+
+  const attachment = attachment_url ? String(attachment_url).trim() : null;
+  if (attachment && attachment.length > MAX_ATTACHMENT_CHARS) {
+    return res.status(413).json({ success: false, message: 'Attachment is too large' });
+  }
+  if (
+    attachment &&
+    !/^data:image\/(png|jpe?g|gif|webp);base64,/i.test(attachment) &&
+    !/^https?:\/\//i.test(attachment)
+  ) {
+    return res.status(400).json({ success: false, message: 'Invalid attachment format' });
+  }
   
   // Basic validation to prevent XSS is done on frontend, but we should strip HTML tags here
   const safeMessage = message ? message.replace(/</g, "&lt;").replace(/>/g, "&gt;") : null;
-  const safeAttachment = attachment_url ? attachment_url.replace(/</g, "&lt;").replace(/>/g, "&gt;") : null;
+  const safeAttachment = attachment ? attachment.replace(/</g, "&lt;").replace(/>/g, "&gt;") : null;
 
   try {
     const stmt = db.prepare(`
