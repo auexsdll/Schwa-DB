@@ -27,7 +27,25 @@ function scanHasThreat(resultsJson) {
   }
 }
 
-function getTeamStats(team) {
+function getSeasonById(seasonId) {
+  if (!seasonId || seasonId === 'all') return null;
+  if (seasonId === 'active') {
+    return db.prepare('SELECT * FROM team_seasons WHERE active = 1 ORDER BY id DESC LIMIT 1').get();
+  }
+  return db.prepare('SELECT * FROM team_seasons WHERE id = ?').get(seasonId);
+}
+
+function getSeasonWhere(prefix, season) {
+  if (!season) return { clause: '', params: [] };
+  const start = season.starts_at;
+  const end = season.ends_at;
+  if (end) {
+    return { clause: ` AND ${prefix} >= ? AND ${prefix} <= ?`, params: [start, end] };
+  }
+  return { clause: ` AND ${prefix} >= ?`, params: [start] };
+}
+
+function getTeamStats(team, season = null) {
   const members = db.prepare('SELECT username FROM team_members WHERE team_id = ?').all(team.id);
   const memberUsernames = members.map(member => member.username);
   if (!memberUsernames.some(name => String(name).toLowerCase() === String(team.leader_username).toLowerCase())) {
@@ -40,13 +58,16 @@ function getTeamStats(team) {
 
   if (memberUsernames.length > 0) {
     const placeholders = memberUsernames.map(() => '?').join(',');
-    const keys = db.prepare(`SELECT id FROM keys WHERE createdBy IN (${placeholders}) OR label IN (${placeholders})`).all(...memberUsernames, ...memberUsernames);
-    totalKeys = keys.length;
+    const keyDate = getSeasonWhere('createdAt', season);
+    const seasonalKeys = db.prepare(`SELECT id FROM keys WHERE (createdBy IN (${placeholders}) OR label IN (${placeholders}))${keyDate.clause}`).all(...memberUsernames, ...memberUsernames, ...keyDate.params);
+    const allKeys = db.prepare(`SELECT id FROM keys WHERE createdBy IN (${placeholders}) OR label IN (${placeholders})`).all(...memberUsernames, ...memberUsernames);
+    totalKeys = seasonalKeys.length;
 
-    if (keys.length > 0) {
-      const keyIds = keys.map(key => key.id);
+    if (allKeys.length > 0) {
+      const keyIds = allKeys.map(key => key.id);
       const scanPlaceholders = keyIds.map(() => '?').join(',');
-      const scans = db.prepare(`SELECT results_json FROM scans WHERE id IN (${scanPlaceholders})`).all(...keyIds);
+      const scanDate = getSeasonWhere('scanned_at', season);
+      const scans = db.prepare(`SELECT results_json FROM scans WHERE id IN (${scanPlaceholders})${scanDate.clause}`).all(...keyIds, ...scanDate.params);
       totalScans = scans.length;
       totalCaught = scans.filter(scan => scanHasThreat(scan.results_json)).length;
     }
@@ -61,14 +82,71 @@ function getTeamStats(team) {
   };
 }
 
+// GET /api/teams/seasons
+router.get('/seasons', (req, res) => {
+  try {
+    const seasons = db.prepare('SELECT * FROM team_seasons ORDER BY starts_at DESC').all();
+    const activeSeason = seasons.find(season => season.active === 1) || null;
+    res.json({ success: true, seasons, activeSeason });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// POST /api/teams/seasons
+router.post('/seasons', (req, res) => {
+  try {
+    const role = req.headers['x-role'];
+    if (role !== 'god' && role !== 'admin') {
+      return res.status(403).json({ error: 'Only admins can create seasons' });
+    }
+    const { name, starts_at, ends_at, activate } = req.body;
+    if (!name) return res.status(400).json({ error: 'Season name required' });
+
+    if (activate) db.prepare('UPDATE team_seasons SET active = 0').run();
+    const info = db.prepare('INSERT INTO team_seasons (name, starts_at, ends_at, active, created_by) VALUES (?, ?, ?, ?, ?)').run(
+      name,
+      starts_at || new Date().toISOString(),
+      ends_at || null,
+      activate ? 1 : 0,
+      req.headers['x-username'] || 'Unknown'
+    );
+    const season = db.prepare('SELECT * FROM team_seasons WHERE id = ?').get(info.lastInsertRowid);
+    res.json({ success: true, season });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// PUT /api/teams/seasons/:id/activate
+router.put('/seasons/:id/activate', (req, res) => {
+  try {
+    const role = req.headers['x-role'];
+    if (role !== 'god' && role !== 'admin') {
+      return res.status(403).json({ error: 'Only admins can activate seasons' });
+    }
+    const season = db.prepare('SELECT * FROM team_seasons WHERE id = ?').get(req.params.id);
+    if (!season) return res.status(404).json({ error: 'Season not found' });
+    db.prepare('UPDATE team_seasons SET active = 0').run();
+    db.prepare('UPDATE team_seasons SET active = 1 WHERE id = ?').run(req.params.id);
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
 // GET /api/teams/leaderboard
 router.get('/leaderboard', (req, res) => {
   try {
+    const season = getSeasonById(req.query.seasonId || 'active');
     const teams = db.prepare('SELECT * FROM teams ORDER BY created_at ASC').all();
     const leaderboard = teams
       .map(team => ({
         ...team,
-        stats: getTeamStats(team)
+        stats: getTeamStats(team, season)
       }))
       .sort((a, b) => b.stats.score - a.stats.score || b.stats.totalCaught - a.stats.totalCaught || b.stats.totalScans - a.stats.totalScans)
       .map((team, index) => ({
@@ -82,7 +160,7 @@ router.get('/leaderboard', (req, res) => {
         stats: team.stats
       }));
 
-    res.json({ success: true, teams: leaderboard });
+    res.json({ success: true, teams: leaderboard, season });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Database error' });

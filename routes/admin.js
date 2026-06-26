@@ -702,6 +702,63 @@ router.post('/users/:id/flair', (req, res) => {
     res.status(500).json({ error: 'Database error' });
   }
 });
+
+// GET /api/admin/badge-presets
+router.get('/badge-presets', (req, res) => {
+  try {
+    const role = req.headers['x-role'];
+    if (role !== 'god' && role !== 'admin') {
+      return res.status(403).json({ error: 'Permission denied.' });
+    }
+    const presets = db.prepare('SELECT * FROM badge_presets ORDER BY created_at DESC').all();
+    res.json({ success: true, presets });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// POST /api/admin/badge-presets
+router.post('/badge-presets', (req, res) => {
+  try {
+    const role = req.headers['x-role'];
+    if (role !== 'god') {
+      return res.status(403).json({ error: 'Only God can manage badge presets.' });
+    }
+    const [badge] = normalizeBadges([req.body]);
+    if (!badge) return res.status(400).json({ error: 'Badge label required.' });
+
+    const info = db.prepare('INSERT INTO badge_presets (label, color, icon, created_by) VALUES (?, ?, ?, ?)').run(
+      badge.label,
+      badge.color || '#38bdf8',
+      badge.icon || '',
+      req.headers['x-username'] || 'Unknown'
+    );
+    const preset = db.prepare('SELECT * FROM badge_presets WHERE id = ?').get(info.lastInsertRowid);
+    logAudit(req.headers['x-username'] || 'Unknown', 'BADGE_PRESET_CREATED', preset.label, `Created badge preset ${preset.label}`);
+    res.json({ success: true, preset });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// DELETE /api/admin/badge-presets/:id
+router.delete('/badge-presets/:id', (req, res) => {
+  try {
+    const role = req.headers['x-role'];
+    if (role !== 'god') {
+      return res.status(403).json({ error: 'Only God can manage badge presets.' });
+    }
+    const preset = db.prepare('SELECT * FROM badge_presets WHERE id = ?').get(req.params.id);
+    db.prepare('DELETE FROM badge_presets WHERE id = ?').run(req.params.id);
+    logAudit(req.headers['x-username'] || 'Unknown', 'BADGE_PRESET_DELETED', preset ? preset.label : req.params.id, 'Deleted badge preset');
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
 // GET /api/admin/false-positives
 router.get('/false-positives', (req, res) => {
   try {

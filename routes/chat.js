@@ -4,6 +4,26 @@ const db = require('../database');
 
 const MAX_ATTACHMENT_CHARS = 12 * 1024 * 1024;
 
+const adminAuth = (req, res, next) => {
+  const adminSecret = req.headers['x-admin-secret'];
+  const role = req.headers['x-role'];
+  if (!adminSecret || adminSecret !== process.env.ADMIN_SECRET || !['god', 'admin'].includes(role)) {
+    return res.status(403).json({ success: false, message: 'Unauthorized' });
+  }
+  next();
+};
+
+function getFormattedMessage(messageId) {
+  return db.prepare(`
+    SELECT c.*, k.label as username, k.discord_id, k.email, k.avatar_url, k.profile_color, tm.team_id, t.name as team_name, t.logo_url as team_logo
+    FROM chat_messages c
+    JOIN keys k ON c.user_id = k.id
+    LEFT JOIN team_members tm ON k.label = tm.username COLLATE NOCASE
+    LEFT JOIN teams t ON tm.team_id = t.id
+    WHERE c.id = ?
+  `).get(messageId);
+}
+
 // Middleware to check authentication (we use user_id from headers/body in simple setups, but let's assume it's passed)
 const authenticate = (req, res, next) => {
   const userId = req.headers['authorization'] || req.headers['x-user-id'] || req.body.user_id || req.query.user_id;
@@ -78,11 +98,40 @@ router.post('/messages', authenticate, (req, res) => {
     `);
     
     const info = stmt.run(req.user.id, safeMessage, safeAttachment);
+    const createdMessage = getFormattedMessage(info.lastInsertRowid);
+    req.app.get('io')?.emit('chat:message', createdMessage);
     
-    res.json({ success: true, message_id: info.lastInsertRowid });
+    res.json({ success: true, message_id: info.lastInsertRowid, message: createdMessage });
   } catch (error) {
     console.error('Post chat error:', error);
     res.status(500).json({ success: false, message: 'Failed to post message' });
+  }
+});
+
+// Delete one chat message (God/Admin)
+router.delete('/messages/:id', adminAuth, (req, res) => {
+  try {
+    const result = db.prepare('DELETE FROM chat_messages WHERE id = ?').run(req.params.id);
+    if (result.changes === 0) {
+      return res.status(404).json({ success: false, message: 'Message not found' });
+    }
+    req.app.get('io')?.emit('chat:delete', { id: Number(req.params.id) });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Delete chat message error:', error);
+    res.status(500).json({ success: false, message: 'Failed to delete message' });
+  }
+});
+
+// Reset global chat (God/Admin)
+router.delete('/messages', adminAuth, (req, res) => {
+  try {
+    db.prepare('DELETE FROM chat_messages').run();
+    req.app.get('io')?.emit('chat:reset', { reset_at: new Date().toISOString() });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Reset chat error:', error);
+    res.status(500).json({ success: false, message: 'Failed to reset chat' });
   }
 });
 

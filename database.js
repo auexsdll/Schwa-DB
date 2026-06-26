@@ -168,6 +168,25 @@ db.exec(`
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (team_id) REFERENCES teams (id) ON DELETE CASCADE
   );
+
+  CREATE TABLE IF NOT EXISTS badge_presets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    label TEXT NOT NULL,
+    color TEXT DEFAULT '#38bdf8',
+    icon TEXT DEFAULT '',
+    created_by TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS team_seasons (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    starts_at TEXT NOT NULL,
+    ends_at TEXT,
+    active INTEGER DEFAULT 0,
+    created_by TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
 `);
 
 try {
@@ -205,5 +224,15 @@ try { db.exec(`ALTER TABLE teams ADD COLUMN description TEXT;`); } catch (e) {}
 try { db.exec(`ALTER TABLE teams ADD COLUMN color TEXT DEFAULT '#10b981';`); } catch (e) {}
 
 try { db.exec(`ALTER TABLE team_members ADD COLUMN custom_role TEXT;`); } catch (e) {}
+
+try {
+  const seasonCount = db.prepare('SELECT COUNT(*) as count FROM team_seasons').get().count;
+  if (seasonCount === 0) {
+    db.prepare(`
+      INSERT INTO team_seasons (name, starts_at, active, created_by)
+      VALUES ('Season 1', datetime('now'), 1, 'system')
+    `).run();
+  }
+} catch (e) {}
 
 module.exports = db;

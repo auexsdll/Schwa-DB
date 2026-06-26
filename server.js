@@ -5,6 +5,8 @@ const path = require('path');
 const crypto = require('crypto');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+const http = require('http');
+const { Server } = require('socket.io');
 // No need for nodemailer anymore, we will use direct REST API
 // to bypass all Railway port and SMTP blocking issues.
 
@@ -12,6 +14,19 @@ const app = express();
 app.set('trust proxy', 1); // Fixes rate limit warnings on Railway
 
 const port = process.env.PORT || 3000;
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: {
+    origin: '*',
+    methods: ['GET', 'POST', 'PUT', 'DELETE']
+  }
+});
+
+app.set('io', io);
+
+io.on('connection', (socket) => {
+  socket.emit('socket:ready', { ok: true });
+});
 
 // Middleware
 app.use(helmet()); // Sets security HTTP headers
@@ -607,7 +622,9 @@ app.post('/api/notifications', (req, res) => {
   }
   try {
     const stmt = db.prepare('INSERT INTO notifications (title, message, type) VALUES (?, ?, ?)');
-    stmt.run(title, message, type || 'info');
+    const info = stmt.run(title, message, type || 'info');
+    const notification = db.prepare('SELECT * FROM notifications WHERE id = ?').get(info.lastInsertRowid);
+    req.app.get('io')?.emit('notification:new', notification);
     res.json({ success: true, message: 'Notification sent' });
   } catch (err) {
     console.error(err);
@@ -624,6 +641,7 @@ app.delete('/api/notifications/:id', (req, res) => {
     const stmt = db.prepare('DELETE FROM notifications WHERE id = ?');
     const result = stmt.run(req.params.id);
     if (result.changes > 0) {
+      req.app.get('io')?.emit('notification:delete', { id: Number(req.params.id) });
       res.json({ success: true, message: 'Notification deleted' });
     } else {
       res.status(404).json({ success: false, message: 'Notification not found' });
@@ -647,6 +665,8 @@ app.put('/api/notifications/:id', (req, res) => {
     const stmt = db.prepare('UPDATE notifications SET title = ?, message = ?, type = ? WHERE id = ?');
     const result = stmt.run(title, message, type || 'info', req.params.id);
     if (result.changes > 0) {
+      const notification = db.prepare('SELECT * FROM notifications WHERE id = ?').get(req.params.id);
+      req.app.get('io')?.emit('notification:update', notification);
       res.json({ success: true, message: 'Notification updated' });
     } else {
       res.status(404).json({ success: false, message: 'Notification not found' });
@@ -668,7 +688,7 @@ app.get('/api/public/whitelist', (req, res) => {
   }
 });
 
-app.listen(port, () => {
+server.listen(port, () => {
   console.lang = 'tr';
   console.log(`Backend server ${port} portunda çalışıyor.`);
 });
