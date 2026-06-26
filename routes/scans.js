@@ -5,6 +5,7 @@ const authMiddleware = require('../middleware/auth');
 
 // In-memory store for live scan progress
 const liveScans = new Map();
+const LIVE_SCAN_TTL_MS = 120000;
 
 // POST /api/scan/progress - Client sends progress updates
 router.post('/progress', authMiddleware, (req, res) => {
@@ -52,8 +53,8 @@ router.get('/live/:keyId', (req, res) => {
     return res.json({ active: false });
   }
 
-  // If last updated more than 30 seconds ago, consider it dead/finished
-  if (Date.now() - data.lastUpdated > 30000) {
+  // Deep forensic modules can be quiet for a while; do not mark them dead too early.
+  if (Date.now() - data.lastUpdated > LIVE_SCAN_TTL_MS) {
     liveScans.delete(keyId);
     return res.json({ active: false });
   }
@@ -149,9 +150,18 @@ router.get('/public/:pin', (req, res) => {
 
     // Also check if there's a live scan currently running
     const liveData = liveScans.get(pin);
-    const isLiveActive = liveData && (Date.now() - liveData.lastUpdated <= 30000);
+    const isLiveActive = liveData && (Date.now() - liveData.lastUpdated <= LIVE_SCAN_TTL_MS);
 
-    if (scanRecord) {
+    if (isLiveActive) {
+      // Currently scanning. Prefer live state over older completed scans for the same PIN.
+      return res.json({
+        success: true,
+        status: 'scanning',
+        progress: liveData.progress,
+        message: liveData.message,
+        stage: liveData.stage
+      });
+    } else if (scanRecord) {
       // Completed
       return res.json({
         success: true,
@@ -159,15 +169,6 @@ router.get('/public/:pin', (req, res) => {
         game: scanRecord.game,
         scanned_at: scanRecord.scanned_at,
         results: JSON.parse(scanRecord.results_json || '[]')
-      });
-    } else if (isLiveActive) {
-      // Currently scanning
-      return res.json({
-        success: true,
-        status: 'scanning',
-        progress: liveData.progress,
-        message: liveData.message,
-        stage: liveData.stage
       });
     } else {
       // Waiting for client to start
