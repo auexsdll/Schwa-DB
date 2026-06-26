@@ -7,8 +7,13 @@ const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const http = require('http');
 const { Server } = require('socket.io');
-// No need for nodemailer anymore, we will use direct REST API
-// to bypass all Railway port and SMTP blocking issues.
+const {
+  sendEmail,
+  applicationReceivedEmail,
+  applicationDecisionEmail,
+  referralWelcomeEmail,
+  passwordResetEmail
+} = require('./utils/mailer');
 
 const app = express();
 app.set('trust proxy', 1); // Fixes rate limit warnings on Railway
@@ -77,19 +82,46 @@ const db = require('./database'); // Add this at the top with other requires
 // Public Registration Webhook Endpoint
 app.post('/api/register', async (req, res) => {
   try {
-    // Webhook disabled by user request
-    const webhookUrl = null; // process.env.DISCORD_WEBHOOK_URL;
-    if (!webhookUrl) return res.status(500).json({ error: "Webhook is not configured on backend." });
+    const webhookUrl = process.env.DISCORD_WEBHOOK_URL || '';
+    const username = String(req.body.username || '').trim();
+    const email = String(req.body.email || '').trim().toLowerCase();
+    const discord = String(req.body.discord || '').trim();
+    const reason = String(req.body.reason || '').trim();
 
-    const { username, email, discord, reason } = req.body;
+    if (!username || !email || !discord || !reason) {
+      return res.status(400).json({ success: false, error: "All application fields are required." });
+    }
+
+    const existingUser = db.prepare('SELECT id FROM keys WHERE label = ? COLLATE NOCASE OR email = ? COLLATE NOCASE').get(username, email);
+    if (existingUser) {
+      return res.status(409).json({ success: false, error: "An account already exists with this username or email." });
+    }
+
+    const existingApplication = db.prepare(`
+      SELECT id FROM applications
+      WHERE (username = ? COLLATE NOCASE OR email = ? COLLATE NOCASE)
+      AND status = 'pending'
+      ORDER BY created_at DESC
+      LIMIT 1
+    `).get(username, email);
+    if (existingApplication) {
+      return res.json({ success: true, message: "Application is already pending review.", applicationId: existingApplication.id, duplicate: true });
+    }
 
     // Save to Database
     const stmt = db.prepare(`INSERT INTO applications (username, email, discord, reason, status) VALUES (?, ?, ?, ?, 'pending')`);
-    const info = stmt.run(username, email, discord || '', reason || '');
+    const info = stmt.run(username, email, discord, reason);
     const appId = info.lastInsertRowid;
 
     const backendUrl = "https://schwa-db-production.up.railway.app";
+    const mailResult = await sendEmail({
+      to: email,
+      subject: 'Application Received - Schwa Scanner',
+      html: applicationReceivedEmail({ username, email, discord, reason })
+    });
     
+    if (webhookUrl) {
+      try {
     const response = await fetch(`${webhookUrl}?wait=true`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -115,10 +147,14 @@ app.post('/api/register', async (req, res) => {
     if (messageData && messageData.id) {
       db.prepare(`UPDATE applications SET message_id = ? WHERE id = ?`).run(messageData.id, appId);
     }
+      } catch (webhookError) {
+        console.error("Register webhook error:", webhookError.message);
+      }
+    }
 
-    res.json({ success: true, message: "Application sent successfully" });
+    res.json({ success: true, message: "Application saved successfully", applicationId: appId, mail: mailResult });
   } catch (error) {
-    console.error("Register webhook error:", error);
+    console.error("Register application error:", error);
     res.status(500).json({ error: "Failed to send application", details: error.message });
   }
 });
@@ -194,35 +230,16 @@ app.post('/api/customer/register-referral', async (req, res) => {
     db.prepare('UPDATE referrals SET is_used = 1, used_by = ? WHERE code = ?').run(desiredUsername, code);
 
     // 7. Auto login response and Email notification
-    if (process.env.SMTP_PASS) {
-      const emailHtml = `
-      <div style="font-family: sans-serif; background-color: #0b0c10; color: #fff; padding: 40px; border-radius: 12px; max-width: 600px; margin: 0 auto;">
-        <h2 style="color: #6366f1;">Welcome to Schwa Scanner!</h2>
-        <p>You have successfully joined the team <strong>${teamName}</strong>.</p>
-        <p>Your account has been created with the following details:</p>
-        <ul style="background-color: #111214; padding: 20px; border-radius: 8px; list-style-type: none;">
-          <li><strong>Username:</strong> ${desiredUsername}</li>
-          <li><strong>Password:</strong> ${password}</li>
-          <li><strong>License Key:</strong> ${newKeyId}</li>
-        </ul>
-        <p>You can use either your Password or your License Key to log in.</p>
-        <p>Best Regards,<br>Schwa Development Team</p>
-      </div>`;
-
-      fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${process.env.SMTP_PASS.trim()}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          from: 'Schwa Scanner <noreply@schwadevelopment.com.tr>',
-          to: email,
-          subject: 'Welcome to Schwa Scanner!',
-          html: emailHtml
-        })
-      }).catch(err => console.error("Resend API Request Error:", err));
-    }
+    await sendEmail({
+      to: email,
+      subject: 'Welcome to Schwa Scanner!',
+      html: referralWelcomeEmail({
+        username: desiredUsername,
+        teamName,
+        password,
+        key: newKeyId
+      })
+    });
 
     res.json({
       success: true,
@@ -306,7 +323,13 @@ app.get('/api/respond', async (req, res) => {
     `);
 
     // 2. MAİL VE DİSCORD İŞLEMLERİNİ ARKA PLANDA YAP
-    if (process.env.SMTP_PASS) {
+    sendEmail({
+      to: application.email,
+      subject: isApprove ? 'Your Schwa Scanner Application is Approved!' : 'Schwa Scanner Application Update',
+      html: applicationDecisionEmail(application, newStatus, generatedKey)
+    }).catch(err => console.error("Decision email error:", err));
+
+    if (false && process.env.SMTP_PASS) {
       const emailHtml = isApprove 
         ? `<!DOCTYPE html>
 <html>
@@ -557,7 +580,7 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok' });
 });
 
-app.post('/api/customer/forgot-password', (req, res) => {
+app.post('/api/customer/forgot-password', async (req, res) => {
   const { email } = req.body;
   if (!email) return res.status(400).json({ success: false, message: 'Email required' });
 
@@ -568,30 +591,11 @@ app.post('/api/customer/forgot-password', (req, res) => {
     const newPassword = Math.random().toString(36).slice(-8);
     db.prepare('UPDATE keys SET password = ? WHERE id = ?').run(newPassword, userRecord.id);
 
-    if (process.env.SMTP_PASS) {
-      const emailHtml = `
-      <div style="font-family: sans-serif; background-color: #0b0c10; color: #fff; padding: 40px; border-radius: 12px; max-width: 600px; margin: 0 auto;">
-        <h2 style="color: #6366f1;">Password Reset</h2>
-        <p>Your password has been reset successfully.</p>
-        <p>Your new login details:</p>
-        <ul style="background-color: #111214; padding: 20px; border-radius: 8px; list-style-type: none;">
-          <li><strong>Username:</strong> ${userRecord.label}</li>
-          <li><strong>New Password:</strong> ${newPassword}</li>
-        </ul>
-        <p>Best Regards,<br>Schwa Development Team</p>
-      </div>`;
-
-      fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${process.env.SMTP_PASS.trim()}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          from: 'Schwa Scanner <noreply@schwadevelopment.com.tr>',
-          to: email,
-          subject: 'Your New Password - Schwa Scanner',
-          html: emailHtml
-        })
-      }).catch(err => console.error(err));
-    }
+    await sendEmail({
+      to: email,
+      subject: 'Your New Password - Schwa Scanner',
+      html: passwordResetEmail(userRecord, newPassword)
+    });
 
     res.json({ success: true, message: 'New password sent to your email.' });
   } catch (err) {

@@ -2,6 +2,11 @@ const express = require('express');
 const router = express.Router();
 const db = require('../database');
 const axios = require('axios');
+const {
+  sendEmail,
+  applicationDecisionEmail,
+  accountStatusEmail
+} = require('../utils/mailer');
 
 function logAudit(admin_username, action, target, details) {
   try {
@@ -35,10 +40,19 @@ function normalizeBadges(rawBadges) {
 }
 
 async function sendCustomerEmail(username, action) {
-  if (!process.env.SMTP_PASS) return;
   // Sadece müşteriler için application kaydı vardır, normal admin keyleri için dönmez.
   const application = db.prepare('SELECT * FROM applications WHERE username = ? COLLATE NOCASE').get(username);
   if (!application || !application.email) return;
+
+  const statusEmail = accountStatusEmail(application, action);
+  if (statusEmail) {
+    await sendEmail({
+      to: application.email,
+      subject: statusEmail.subject,
+      html: statusEmail.html
+    });
+  }
+  return;
 
   let subject = '';
   let contentHtml = '';
@@ -263,7 +277,7 @@ router.put('/keys/:id', (req, res) => {
       const currentRecord = db.prepare('SELECT active, label FROM keys WHERE id = ?').get(id);
       if (currentRecord && currentRecord.active !== (updates.active ? 1 : 0)) {
         const action = updates.active ? 'reactivated' : 'frozen';
-        sendCustomerEmail(currentRecord.label, action);
+        sendCustomerEmail(currentRecord.label, action).catch(err => console.error('Customer email error:', err));
       }
     }
 
@@ -308,7 +322,7 @@ router.delete('/keys/:id', (req, res) => {
 
     if (id.length === 16) {
       const customer = db.prepare('SELECT label FROM keys WHERE id = ?').get(id);
-      if (customer) sendCustomerEmail(customer.label, 'closed');
+      if (customer) sendCustomerEmail(customer.label, 'closed').catch(err => console.error('Customer email error:', err));
     }
 
     const deletedKey = db.prepare('SELECT label FROM keys WHERE id = ?').get(id);
@@ -507,8 +521,14 @@ router.post('/applications/:id/respond', async (req, res) => {
       `).run(generatedKey, application.username, discordAvatarUrl, application.discord, application.email);
     }
 
-    // Send email via Resend API
-    if (application.email && process.env.SMTP_PASS) {
+    // Send email via shared mail provider
+    await sendEmail({
+      to: application.email,
+      subject: isApprove ? 'Your Schwa Scanner Application is Approved!' : 'Schwa Scanner Application Update',
+      html: applicationDecisionEmail(application, newStatus, generatedKey)
+    });
+
+    if (false && application.email && process.env.SMTP_PASS) {
       const emailHtml = isApprove ? `
       <!DOCTYPE html><html><head><style>
         body { margin: 0; padding: 0; background-color: #000000; color: #ffffff; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
