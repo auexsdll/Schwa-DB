@@ -5,6 +5,8 @@ const db = require('../database');
 const rateLimit = require('express-rate-limit');
 const authMiddleware = require('../middleware/auth');
 
+const SCANNER_TOKEN_EXPIRES_IN = process.env.SCANNER_TOKEN_EXPIRES_IN || '4h';
+
 function safeJsonParse(value, fallback) {
   if (!value) return fallback;
   if (Array.isArray(value)) return value;
@@ -108,10 +110,10 @@ router.post('/verify', verifyLimiter, (req, res) => {
     const token = jwt.sign(
       { id: keyRecord.id },
       process.env.JWT_SECRET,
-      { expiresIn: '10m' }
+      { expiresIn: SCANNER_TOKEN_EXPIRES_IN }
     );
 
-    return res.json({ valid: true, token, imageUrl: keyRecord.imageUrl, customStrings });
+    return res.json({ valid: true, token, tokenExpiresIn: SCANNER_TOKEN_EXPIRES_IN, imageUrl: keyRecord.imageUrl, customStrings });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ valid: false, message: 'Sunucu hatası' });

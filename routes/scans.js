@@ -7,6 +7,26 @@ const authMiddleware = require('../middleware/auth');
 const liveScans = new Map();
 const LIVE_SCAN_TTL_MS = 120000;
 
+function parseStoredResults(resultsJson) {
+  try {
+    return JSON.parse(resultsJson || '[]');
+  } catch (error) {
+    console.error('Stored scan JSON parse error:', error);
+    return [];
+  }
+}
+
+function completedScanResponse(scanRecord) {
+  return {
+    success: true,
+    status: 'completed',
+    scan_id: scanRecord.scan_id,
+    game: scanRecord.game,
+    scanned_at: scanRecord.scanned_at,
+    results: parseStoredResults(scanRecord.results_json)
+  };
+}
+
 // POST /api/scan/progress - Client sends progress updates
 router.post('/progress', authMiddleware, (req, res) => {
   const { key, progress, message, findings, stage } = req.body;
@@ -31,11 +51,16 @@ router.post('/progress', authMiddleware, (req, res) => {
     console.error('Progress whitelist filtering error:', e);
   }
 
+  const existingLive = liveScans.get(key);
+  const numericProgress = Number(progress);
+
   liveScans.set(key, {
+    startedAt: existingLive?.startedAt || Date.now(),
     progress,
     message,
     findings: filteredFindings,
     stage: stage || '',
+    completedLocally: Number.isFinite(numericProgress) && numericProgress >= 100,
     lastUpdated: Date.now()
   });
 
@@ -152,6 +177,10 @@ router.get('/public/:pin', (req, res) => {
     const liveData = liveScans.get(pin);
     const isLiveActive = liveData && (Date.now() - liveData.lastUpdated <= LIVE_SCAN_TTL_MS);
 
+    if (scanRecord && (!isLiveActive || liveData.completedLocally || Number(liveData.progress) >= 100)) {
+      return res.json(completedScanResponse(scanRecord));
+    }
+
     if (isLiveActive) {
       // Currently scanning. Prefer live state over older completed scans for the same PIN.
       return res.json({
@@ -159,17 +188,11 @@ router.get('/public/:pin', (req, res) => {
         status: 'scanning',
         progress: liveData.progress,
         message: liveData.message,
-        stage: liveData.stage
+        stage: liveData.stage,
+        findings: liveData.findings || []
       });
     } else if (scanRecord) {
-      // Completed
-      return res.json({
-        success: true,
-        status: 'completed',
-        game: scanRecord.game,
-        scanned_at: scanRecord.scanned_at,
-        results: JSON.parse(scanRecord.results_json || '[]')
-      });
+      return res.json(completedScanResponse(scanRecord));
     } else {
       // Waiting for client to start
       return res.json({
