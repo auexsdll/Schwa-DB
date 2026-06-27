@@ -262,12 +262,36 @@ router.put('/keys/:id', (req, res) => {
 
     const setClauses = [];
     const values = [];
+    const allowedFields = new Set([
+      'active',
+      'label',
+      'game',
+      'notes',
+      'maxUses',
+      'currentUses',
+      'expiresAt',
+      'imageUrl',
+      'createdBy'
+    ]);
+    const numericFields = new Set(['maxUses', 'currentUses']);
     
     for (const [key, value] of Object.entries(updates)) {
-      if (['active', 'label', 'notes', 'maxUses', 'currentUses', 'imageUrl'].includes(key)) {
-        setClauses.push(`${key} = ?`);
-        values.push(key === 'active' ? (value ? 1 : 0) : value);
+      if (!allowedFields.has(key)) continue;
+
+      let normalizedValue = value;
+      if (key === 'active') {
+        normalizedValue = value ? 1 : 0;
+      } else if (numericFields.has(key)) {
+        const parsed = Number(value);
+        normalizedValue = Number.isFinite(parsed) ? Math.max(0, Math.floor(parsed)) : 0;
+      } else if (key === 'label' || key === 'game' || key === 'createdBy') {
+        normalizedValue = String(value || '').trim();
+      } else if (key === 'notes' || key === 'imageUrl' || key === 'expiresAt') {
+        normalizedValue = String(value || '').trim();
       }
+
+      setClauses.push(`${key} = ?`);
+      values.push(normalizedValue);
     }
     
     if (setClauses.length === 0) return res.json({ success: true });
