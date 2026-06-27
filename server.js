@@ -14,6 +14,7 @@ const {
   referralWelcomeEmail,
   passwordResetEmail
 } = require('./utils/mailer');
+const db = require('./database');
 
 const app = express();
 app.set('trust proxy', 1); // Fixes rate limit warnings on Railway
@@ -56,6 +57,93 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 // CORS already configured above
 
+function getClientIp(req) {
+  const raw = req.headers['cf-connecting-ip'] || req.headers['x-forwarded-for'] || req.headers['x-real-ip'] || req.socket.remoteAddress || '';
+  let ip = String(raw).split(',')[0].trim();
+  if (ip.startsWith('::ffff:')) ip = ip.slice(7);
+  if (ip === '::1') ip = '127.0.0.1';
+  return ip || 'unknown';
+}
+
+function isPrivateIp(ip) {
+  return ip === 'unknown' || ip === '127.0.0.1' || ip.startsWith('10.') || ip.startsWith('192.168.') ||
+    /^172\.(1[6-9]|2\d|3[0-1])\./.test(ip) || ip.startsWith('fc') || ip.startsWith('fd');
+}
+
+async function lookupGeo(ip) {
+  if (isPrivateIp(ip)) return {};
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 1500);
+  try {
+    const response = await fetch(`https://ipapi.co/${encodeURIComponent(ip)}/json/`, { signal: controller.signal });
+    if (!response.ok) return {};
+    const data = await response.json();
+    return {
+      city: data.city || '',
+      region: data.region || '',
+      country: data.country_name || data.country || '',
+      latitude: Number.isFinite(Number(data.latitude)) ? Number(data.latitude) : null,
+      longitude: Number.isFinite(Number(data.longitude)) ? Number(data.longitude) : null
+    };
+  } catch (e) {
+    return {};
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+app.post('/api/visit', async (req, res) => {
+  try {
+    const ip = getClientIp(req);
+    const banned = db.prepare('SELECT * FROM ip_bans WHERE ip = ? AND active = 1').get(ip);
+    if (banned) return res.status(403).json({ success: false, banned: true, reason: banned.reason || '' });
+
+    const username = String(req.body.username || '').trim().slice(0, 80);
+    const role = String(req.body.role || 'guest').trim().slice(0, 32) || 'guest';
+    const pagePath = String(req.body.path || '/').trim().slice(0, 300);
+    const referrer = String(req.body.referrer || '').trim().slice(0, 300);
+    const userAgent = String(req.headers['user-agent'] || '').slice(0, 600);
+    const geo = await lookupGeo(ip);
+
+    const existing = db.prepare(`
+      SELECT id FROM web_visits
+      WHERE ip = ? AND COALESCE(username, '') = ? AND COALESCE(path, '') = ?
+      LIMIT 1
+    `).get(ip, username, pagePath);
+
+    if (existing) {
+      db.prepare(`
+        UPDATE web_visits
+        SET role = ?, referrer = ?, user_agent = ?, city = COALESCE(?, city), region = COALESCE(?, region),
+            country = COALESCE(?, country), latitude = COALESCE(?, latitude), longitude = COALESCE(?, longitude),
+            visit_count = visit_count + 1, last_seen = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(role, referrer, userAgent, geo.city || null, geo.region || null, geo.country || null, geo.latitude, geo.longitude, existing.id);
+    } else {
+      db.prepare(`
+        INSERT INTO web_visits (ip, username, role, path, referrer, user_agent, city, region, country, latitude, longitude)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(ip, username, role, pagePath, referrer, userAgent, geo.city || null, geo.region || null, geo.country || null, geo.latitude, geo.longitude);
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Visit log error:', err);
+    res.status(500).json({ success: false, error: 'Visit log failed' });
+  }
+});
+
+app.use((req, res, next) => {
+  if (!req.path.startsWith('/api') || req.path.startsWith('/api/admin')) return next();
+  try {
+    const banned = db.prepare('SELECT reason FROM ip_bans WHERE ip = ? AND active = 1').get(getClientIp(req));
+    if (banned) return res.status(403).json({ success: false, banned: true, error: 'IP banned', reason: banned.reason || '' });
+  } catch (err) {
+    console.error('IP ban check error:', err);
+  }
+  next();
+});
+
 // Temel güvenlik için electron-app-only mantığı eklenebilir, şimdilik basit CORS kullanıyoruz.
 
 // Routes
@@ -76,8 +164,6 @@ app.use('/api/spotify', spotifyRouter);
 app.use('/api/strings', stringsRouter);
 app.use('/api/ai-analyze', aiRouter);
 app.use('/api/chat', chatRouter);
-
-const db = require('./database'); // Add this at the top with other requires
 
 // Public Registration Webhook Endpoint
 app.post('/api/register', async (req, res) => {

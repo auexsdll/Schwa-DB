@@ -18,6 +18,11 @@ function logAudit(admin_username, action, target, details) {
   }
 }
 
+function canManageSite(req) {
+  const role = req.headers['x-role'];
+  return role === 'god' || role === 'admin';
+}
+
 function normalizeBadges(rawBadges) {
   const source = Array.isArray(rawBadges) ? rawBadges : [];
   return source
@@ -872,6 +877,72 @@ router.get('/whitelist', (req, res) => {
     const items = db.prepare('SELECT keyword FROM whitelist').all();
     const keywords = items.map(item => item.keyword);
     res.json({ keywords });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// GET /api/admin/web-visits
+router.get('/web-visits', (req, res) => {
+  try {
+    if (!canManageSite(req)) return res.status(403).json({ error: 'Permission denied.' });
+    const visits = db.prepare(`
+      SELECT
+        v.*,
+        COALESCE(b.active, 0) AS banned,
+        b.reason AS ban_reason,
+        b.banned_by,
+        b.banned_at
+      FROM web_visits v
+      LEFT JOIN ip_bans b ON b.ip = v.ip AND b.active = 1
+      ORDER BY v.last_seen DESC
+      LIMIT 500
+    `).all();
+    res.json({ success: true, visits });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// POST /api/admin/ip-bans
+router.post('/ip-bans', (req, res) => {
+  try {
+    if (!canManageSite(req)) return res.status(403).json({ error: 'Permission denied.' });
+    const ip = String(req.body.ip || '').trim();
+    const reason = String(req.body.reason || 'Manual site ban').trim().slice(0, 300);
+    if (!ip || ip.length > 80) return res.status(400).json({ error: 'Valid IP required.' });
+
+    const adminUsername = req.headers['x-username'] || 'Unknown';
+    db.prepare(`
+      INSERT INTO ip_bans (ip, reason, banned_by, active, banned_at, unbanned_by, unbanned_at)
+      VALUES (?, ?, ?, 1, CURRENT_TIMESTAMP, NULL, NULL)
+      ON CONFLICT(ip) DO UPDATE SET
+        reason = excluded.reason,
+        banned_by = excluded.banned_by,
+        active = 1,
+        banned_at = CURRENT_TIMESTAMP,
+        unbanned_by = NULL,
+        unbanned_at = NULL
+    `).run(ip, reason, adminUsername);
+    logAudit(adminUsername, 'IP_BANNED', ip, reason);
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// DELETE /api/admin/ip-bans/:ip
+router.delete('/ip-bans/:ip', (req, res) => {
+  try {
+    if (!canManageSite(req)) return res.status(403).json({ error: 'Permission denied.' });
+    const ip = String(req.params.ip || '').trim();
+    const adminUsername = req.headers['x-username'] || 'Unknown';
+    db.prepare('UPDATE ip_bans SET active = 0, unbanned_by = ?, unbanned_at = CURRENT_TIMESTAMP WHERE ip = ?').run(adminUsername, ip);
+    logAudit(adminUsername, 'IP_UNBANNED', ip, 'Site visit ban removed');
+    res.json({ success: true });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Database error' });

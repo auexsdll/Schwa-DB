@@ -187,6 +187,37 @@ db.exec(`
     created_by TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
+
+  CREATE TABLE IF NOT EXISTS web_visits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ip TEXT NOT NULL,
+    username TEXT,
+    role TEXT DEFAULT 'guest',
+    path TEXT,
+    referrer TEXT,
+    user_agent TEXT,
+    city TEXT,
+    region TEXT,
+    country TEXT,
+    latitude REAL,
+    longitude REAL,
+    visit_count INTEGER DEFAULT 1,
+    first_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
+    last_seen DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS ip_bans (
+    ip TEXT PRIMARY KEY,
+    reason TEXT,
+    banned_by TEXT,
+    banned_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    active INTEGER DEFAULT 1,
+    unbanned_by TEXT,
+    unbanned_at DATETIME
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_web_visits_last_seen ON web_visits(last_seen);
+  CREATE INDEX IF NOT EXISTS idx_web_visits_ip ON web_visits(ip);
 `);
 
 try {
